@@ -15,7 +15,7 @@
 
       let
         pname = "treli";
-        version = "0.0.3";
+        version = "0.0.4";
 
         pkgs = import nixpkgs { 
           inherit system;
