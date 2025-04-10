@@ -55,7 +55,7 @@
                 if ! git diff --exit-code go.mod go.sum; then
                   git add go.mod
                   git add go.sum
-                  git commit -m "build(server): updated go dependencies"
+                  git commit -m "build(go): updated go dependencies"
                 fi
 
                 cd "''${git_root}"
@@ -93,8 +93,8 @@
               text = ''
                 git_root=$(git rev-parse --show-toplevel)
 
-                cd "''${git_root}/server"
-                echo "Linting server"
+                cd "''${git_root}"
+                echo "Linting"
                 revive -config revive.toml -formatter friendly ./...
               '';
             })
@@ -108,16 +108,16 @@
 
                 cd "''${git_root}"
                 echo "Building ${pname}-windows-amd64-${version}.exe"
-                GOOS=windows GOARCH=amd64 go build -o "../build/${pname}-windows-amd64-${version}.exe" .
+                GOOS=windows GOARCH=amd64 go build -o "./build/${pname}-windows-amd64-${version}.exe" .
 
                 echo "Building ${pname}-linux-amd64-${version}"
-                GOOS=linux GOARCH=amd64 go build -o "../build/${pname}-linux-amd64-${version}" .
+                GOOS=linux GOARCH=amd64 go build -o "./build/${pname}-linux-amd64-${version}" .
 
                 echo "Building ${pname}-linux-amd64-${version}"
-                GOOS=linux GOARCH=arm64 go build -o "../build/${pname}-linux-arm64-${version}" .
+                GOOS=linux GOARCH=arm64 go build -o "./build/${pname}-linux-arm64-${version}" .
 
                 echo "Building ${pname}-linux-arm-${version}"
-                GOOS=linux GOARCH=arm go build -o "../build/${pname}-linux-arm-${version}" .
+                GOOS=linux GOARCH=arm go build -o "./build/${pname}-linux-arm-${version}" .
               '';
             })
           ];
