@@ -15,7 +15,7 @@
 
       let
         pname = "treli";
-        version = "0.0.1";
+        version = "0.0.2";
 
         pkgs = import nixpkgs { 
           inherit system;
@@ -76,7 +76,7 @@
                 next_version=$(echo "${version}" | awk -F. -v OFS=. '{$NF += 1 ; print}')
 
                 cd "''${git_root}"
-                nix-update attribute --flake --version "''${next_version}" default
+                nix-update --flake --version "''${next_version}" default
                 git add flake.nix
                 git commit -m "bump: v${version} -> v''${next_version}"
                 git push origin main
