@@ -22,37 +22,10 @@
           config.allowUnfree = true;
         };
 
-        protoc-gen-connect-openapi = pkgs.buildGoModule {
-          name = "protoc-gen-connect-openapi";
-          src = pkgs.fetchFromGitHub {
-            owner = "sudorandom";
-            repo = "protoc-gen-connect-openapi";
-            rev = "v0.16.1";
-            sha256 = "sha256-3XBQCc9H9N/AZm/8J5bJRgBhVtoZKFvbdTB+glHxYdA=";
-          };
-          vendorHash = "sha256-CIiG/XhV8xxjYY0sZcSvIFcJ1Wh8LyDDwqem2cSSwBA=";
-          nativeCheckInputs = with pkgs; [ less ];
-        };
-
-        bobgen = pkgs.buildGoModule {
-          name = "bobgen";
-          src = pkgs.fetchFromGitHub {
-            owner = "stephenafamo";
-            repo = "bob";
-            rev = "v0.31.0";
-            sha256 = "sha256-APAckQ+EDAu459NTPXUISLIrcAcX3aQ5B/jrMUEW0EY=";
-          };
-          vendorHash = "sha256-3blGiSxlKpWH8k0acAXXks8nCdnoWmXLmzPStJmmGcM=";
-          subPackages = [
-            "gen/bobgen-sqlite"
-            "gen/bobgen-psql"
-          ];
-        };
-
-        treli = pkgs.buildGoModule {
+        app = pkgs.buildGoModule {
           inherit pname version;
           src = gitignore.lib.gitignoreSource ./.;
-          vendorHash = "sha256-sANPwYLGwMcWyMR7Veho81aAMfIQpVzZS5Q9eveR8o8=";
+          vendorHash = "sha256-pUFGkQzbv2sRZ/0rjehL2t+gwZsLWh/TAFYfakCs5g8=";
           env.CGO_ENABLED = 0;
         };
 
@@ -68,25 +41,92 @@
             gotools
             gopls
             revive
-            bobgen
-            
-            # Protobuf middleware
-            buf
-            protoc-gen-go
-            protoc-gen-connect-go
-            protoc-gen-es
-            protoc-gen-connect-openapi
-            inotify-tools
 
-            # Svelte frontend
-            nodejs_22
+            # Update
+            (writeShellApplication {
+              name = "ts-update";
+
+              text = ''
+                git_root=$(git rev-parse --show-toplevel)
+
+                cd "''${git_root}"
+                go get -u
+                go mod tidy
+                if ! git diff --exit-code go.mod go.sum; then
+                  git add go.mod
+                  git add go.sum
+                  git commit -m "build(server): updated go dependencies"
+                fi
+
+                cd "''${git_root}"
+                nix-update --flake --version=skip default
+                if ! git diff --exit-code flake.nix; then
+                  git add flake.nix
+                  git commit -m "build(nix): updated nix hashes"
+                fi
+              '';
+            })
+
+            # Bump version
+            (writeShellApplication {
+              name = "ts-bump";
+
+              text = ''
+                git_root=$(git rev-parse --show-toplevel)
+                next_version=$(echo "${version}" | awk -F. -v OFS=. '{$NF += 1 ; print}')
+
+                cd "''${git_root}"
+                nix-update attribute --flake --version "''${next_version}" default
+                git add flake.nix
+                git commit -m "bump: v${version} -> v''${next_version}"
+                git push origin main
+
+                git tag -a "v''${next_version}" -m "bump: v${version} -> v''${next_version}"
+                git push origin "v''${next_version}"
+              '';
+            })
+
+            # Lint
+            (writeShellApplication {
+              name = "ts-lint";
+
+              text = ''
+                git_root=$(git rev-parse --show-toplevel)
+
+                cd "''${git_root}/server"
+                echo "Linting server"
+                revive -config revive.toml -formatter friendly ./...
+              '';
+            })
+
+            # Build
+            (writeShellApplication {
+              name = "ts-build";
+
+              text = ''
+                git_root=$(git rev-parse --show-toplevel)
+
+                cd "''${git_root}"
+                echo "Building ${pname}-windows-amd64-${version}.exe"
+                GOOS=windows GOARCH=amd64 go build -o "../build/${pname}-windows-amd64-${version}.exe" .
+
+                echo "Building ${pname}-linux-amd64-${version}"
+                GOOS=linux GOARCH=amd64 go build -o "../build/${pname}-linux-amd64-${version}" .
+
+                echo "Building ${pname}-linux-amd64-${version}"
+                GOOS=linux GOARCH=arm64 go build -o "../build/${pname}-linux-arm64-${version}" .
+
+                echo "Building ${pname}-linux-arm-${version}"
+                GOOS=linux GOARCH=arm go build -o "../build/${pname}-linux-arm-${version}" .
+              '';
+            })
           ];
         };
 
         packages = rec {
-          default = treli;
+          default = app;
 
-          treli = treli;
+          treli = app;
         };
       }
     );
