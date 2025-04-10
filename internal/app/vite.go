@@ -58,13 +58,12 @@ func (v *Vite) Success() *bool {
 func (v *Vite) Start(ctx context.Context) {
 	v.wg.Wait()
 
-	//go v.build()
 	go v.dev(ctx)
 }
 
 func (v *Vite) Wait() {
 	v.msg(Msg{
-		Text:    "Stopping",
+		Text:    "stopping",
 		Loading: util.BoolPointer(true),
 		Key:     util.StringPointer("vite stop"),
 	})
@@ -72,7 +71,7 @@ func (v *Vite) Wait() {
 	v.wg.Wait()
 
 	v.msg(Msg{
-		Text:    "Stopped",
+		Text:    "stopped",
 		Loading: util.BoolPointer(false),
 		Success: util.BoolPointer(true),
 		Key:     util.StringPointer("vite stop"),
@@ -160,80 +159,19 @@ func (v *Vite) dev(ctx context.Context) {
 		case util.ExitCode:
 			if line == 0 {
 				v.msg(Msg{
-					Text:    "stopped",
+					Text:    "dev stopped",
 					Loading: util.BoolPointer(false),
 					Success: util.BoolPointer(true),
+					Key:     &key,
 				})
 			} else {
 				v.msg(Msg{
-					Text:    fmt.Sprintf("stopped with exit code %d", out),
+					Text:    fmt.Sprintf("dev stopped"),
 					Loading: util.BoolPointer(false),
 					Success: util.BoolPointer(false),
-				})
-			}
-		}
-	}
-}
-
-func (v *Vite) build() error {
-	v.wg.Add(1)
-	defer v.wg.Done()
-	key := v.Name() + "build"
-
-	v.msg(Msg{
-		Text:    "building",
-		Loading: util.BoolPointer(true),
-		Key:     &key,
-	})
-
-	// Run vite build
-	cmd := exec.Command("npx", "vite", "build")
-	cmd.Dir = v.dir
-	out, err := util.Run(cmd)
-	if err != nil {
-		v.msg(Msg{
-			Text:    err.Error(),
-			Success: util.BoolPointer(false),
-		})
-		return err
-	}
-
-	// Watch for output
-	for line := range out {
-		switch line := line.(type) {
-		case util.Stdout:
-			v.msg(Msg{
-				Text: string(line),
-			})
-
-		case util.Stderr:
-			v.msg(Msg{
-				Text:    string(line),
-				Success: util.BoolPointer(false),
-			})
-
-		case util.ExitCode:
-			if line == 0 {
-				v.msg(Msg{
-					Text:    "build successful",
-					Success: util.BoolPointer(true),
-					Loading: util.BoolPointer(false),
 					Key:     &key,
 				})
-
-				return nil
 			}
-
-			v.msg(Msg{
-				Text:    fmt.Sprintf("build failed with exit code %d", out),
-				Success: util.BoolPointer(false),
-				Loading: util.BoolPointer(false),
-				Key:     &key,
-			})
-
-			return fmt.Errorf("build failed with exit code %d", line)
 		}
 	}
-
-	return fmt.Errorf("build failed")
 }

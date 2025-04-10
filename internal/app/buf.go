@@ -66,7 +66,7 @@ func (b *Buf) Start(ctx context.Context) {
 
 func (b *Buf) Wait() {
 	b.msg(Msg{
-		Text:    "Stopping",
+		Text:    "stopping",
 		Loading: util.BoolPointer(true),
 		Key:     util.StringPointer("buf stop"),
 	})
@@ -74,7 +74,7 @@ func (b *Buf) Wait() {
 	b.wg.Wait()
 
 	b.msg(Msg{
-		Text:    "Stopped",
+		Text:    "stopped",
 		Loading: util.BoolPointer(false),
 		Success: util.BoolPointer(true),
 		Key:     util.StringPointer("buf stop"),
@@ -145,8 +145,8 @@ loop:
 					Text: "file changed: " + strings.TrimPrefix(event.Name, b.dir),
 				})
 
-				ok, _ = b.lint()
-				if !ok {
+				err = b.lint()
+				if err != nil {
 					return
 				}
 
@@ -170,7 +170,7 @@ loop:
 	})
 }
 
-func (b *Buf) lint() (bool, error) {
+func (b *Buf) lint() error {
 	b.wg.Add(1)
 	defer b.wg.Done()
 
@@ -189,7 +189,7 @@ func (b *Buf) lint() (bool, error) {
 			Text:    err.Error(),
 			Success: util.BoolPointer(false),
 		})
-		return false, err
+		return err
 	}
 
 	// Watch for output
@@ -215,21 +215,19 @@ func (b *Buf) lint() (bool, error) {
 					Key:     util.StringPointer("buf lint"),
 				})
 
-				return true, nil
+				return nil
 			}
 
 			b.msg(Msg{
-				Text:    fmt.Sprintf("lint failed, exit code %d", out),
+				Text:    fmt.Sprintf("lint failed"),
 				Success: util.BoolPointer(false),
 				Loading: util.BoolPointer(false),
 				Key:     util.StringPointer("buf lint"),
 			})
-
-			return false, fmt.Errorf("lint failed, exit code %d", line)
 		}
 	}
 
-	return false, fmt.Errorf("lint failed")
+	return fmt.Errorf("lint failed")
 }
 
 func (b *Buf) generate() error {
@@ -282,13 +280,11 @@ func (b *Buf) generate() error {
 			}
 
 			b.msg(Msg{
-				Text:    fmt.Sprintf("generate failed with exit code %d", out),
+				Text:    fmt.Sprintf("generate failed"),
 				Success: util.BoolPointer(false),
 				Loading: util.BoolPointer(false),
 				Key:     &key,
 			})
-
-			return fmt.Errorf("generate failed with exit code %d", line)
 		}
 	}
 

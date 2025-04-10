@@ -79,7 +79,7 @@ func (a *Golang) Wait() {
 	key := a.Name() + "stop"
 
 	a.msg(Msg{
-		Text:    "Stopping",
+		Text:    "stopping",
 		Loading: util.BoolPointer(true),
 		Key:     &key,
 	})
@@ -87,7 +87,7 @@ func (a *Golang) Wait() {
 	a.wg.Wait()
 
 	a.msg(Msg{
-		Text:    "Stopped",
+		Text:    "stopped",
 		Loading: util.BoolPointer(false),
 		Success: util.BoolPointer(true),
 		Key:     &key,
@@ -232,11 +232,13 @@ func (a *Golang) run(ctx context.Context) {
 		case util.ExitCode:
 			if line == 0 {
 				a.msg(Msg{
-					Text: fmt.Sprintf("stopped"),
+					Text:    fmt.Sprintf("run stopped"),
+					Success: util.BoolPointer(true),
 				})
 			} else {
 				a.msg(Msg{
-					Text: fmt.Sprintf("stopped"),
+					Text:    fmt.Sprintf("run stopped"),
+					Success: util.BoolPointer(false),
 				})
 			}
 		}
@@ -295,13 +297,11 @@ func (a *Golang) build() error {
 			}
 
 			a.msg(Msg{
-				Text:    fmt.Sprintf("build failed with exit code %d", out),
+				Text:    fmt.Sprintf("build failed"),
 				Success: util.BoolPointer(false),
 				Loading: util.BoolPointer(false),
 				Key:     &key,
 			})
-
-			return fmt.Errorf("build failed with exit code %d", line)
 		}
 	}
 

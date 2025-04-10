@@ -60,13 +60,18 @@ func (a *Prettier) Success() *bool {
 func (a *Prettier) Start(ctx context.Context) {
 	a.wg.Wait()
 
-	go a.lint()
+	go func() {
+		err := a.lint()
+		if err != nil {
+			a.write()
+		}
+	}()
 	go a.watch(ctx)
 }
 
 func (a *Prettier) Wait() {
 	a.msg(Msg{
-		Text:    "Stopping",
+		Text:    "stopping",
 		Loading: util.BoolPointer(true),
 		Key:     util.StringPointer(a.Name() + "stop"),
 	})
@@ -74,7 +79,7 @@ func (a *Prettier) Wait() {
 	a.wg.Wait()
 
 	a.msg(Msg{
-		Text:    "Stopped",
+		Text:    "stopped",
 		Loading: util.BoolPointer(false),
 		Success: util.BoolPointer(true),
 		Key:     util.StringPointer(a.Name() + "stop"),
@@ -144,7 +149,11 @@ loop:
 				a.msg(Msg{
 					Text: "file changed: " + strings.TrimPrefix(event.Name, a.dir),
 				})
-				a.lint()
+
+				err = a.lint()
+				if err != nil {
+					a.write()
+				}
 			}()
 
 		case err, ok := <-watcher.Errors:
@@ -164,7 +173,7 @@ loop:
 	})
 }
 
-func (a *Prettier) lint() (bool, error) {
+func (a *Prettier) lint() error {
 	a.wg.Add(1)
 	defer a.wg.Done()
 	key := a.Name() + "lint"
@@ -184,7 +193,7 @@ func (a *Prettier) lint() (bool, error) {
 			Text:    err.Error(),
 			Success: util.BoolPointer(false),
 		})
-		return false, err
+		return err
 	}
 
 	// Watch for output
@@ -210,19 +219,78 @@ func (a *Prettier) lint() (bool, error) {
 					Key:     &key,
 				})
 
-				return true, nil
+				return nil
 			}
 
 			a.msg(Msg{
-				Text:    fmt.Sprintf("lint failed, exit code %d", out),
+				Text:    fmt.Sprintf("lint failed"),
 				Success: util.BoolPointer(false),
 				Loading: util.BoolPointer(false),
 				Key:     &key,
 			})
-
-			return false, fmt.Errorf("lint failed, exit code %d", line)
 		}
 	}
 
-	return false, fmt.Errorf("lint failed")
+	return fmt.Errorf("lint failed")
+}
+
+func (a *Prettier) write() error {
+	a.wg.Add(1)
+	defer a.wg.Done()
+	key := a.Name() + "write"
+
+	a.msg(Msg{
+		Text:    "writing",
+		Loading: util.BoolPointer(true),
+		Key:     &key,
+	})
+
+	// Run write
+	cmd := exec.Command("npx", "prettier", "--write", ".")
+	cmd.Dir = a.dir
+	out, err := util.Run(cmd)
+	if err != nil {
+		a.msg(Msg{
+			Text:    err.Error(),
+			Success: util.BoolPointer(false),
+		})
+		return err
+	}
+
+	// Watch for output
+	for line := range out {
+		switch line := line.(type) {
+		case util.Stdout:
+			a.msg(Msg{
+				Text: string(line),
+			})
+
+		case util.Stderr:
+			a.msg(Msg{
+				Text:    string(line),
+				Success: util.BoolPointer(false),
+			})
+
+		case util.ExitCode:
+			if line == 0 {
+				a.msg(Msg{
+					Text:    "write successful",
+					Success: util.BoolPointer(true),
+					Loading: util.BoolPointer(false),
+					Key:     &key,
+				})
+
+				return nil
+			}
+
+			a.msg(Msg{
+				Text:    fmt.Sprintf("write failed"),
+				Success: util.BoolPointer(false),
+				Loading: util.BoolPointer(false),
+				Key:     &key,
+			})
+		}
+	}
+
+	return fmt.Errorf("write failed")
 }

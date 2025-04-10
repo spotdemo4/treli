@@ -66,7 +66,7 @@ func (a *Revive) Start(ctx context.Context) {
 
 func (a *Revive) Wait() {
 	a.msg(Msg{
-		Text:    "Stopping",
+		Text:    "stopping",
 		Loading: util.BoolPointer(true),
 		Key:     util.StringPointer("buf stop"),
 	})
@@ -74,7 +74,7 @@ func (a *Revive) Wait() {
 	a.wg.Wait()
 
 	a.msg(Msg{
-		Text:    "Stopped",
+		Text:    "stopped",
 		Loading: util.BoolPointer(false),
 		Success: util.BoolPointer(true),
 		Key:     util.StringPointer("buf stop"),
@@ -164,7 +164,7 @@ loop:
 	})
 }
 
-func (a *Revive) lint() (bool, error) {
+func (a *Revive) lint() error {
 	a.wg.Add(1)
 	defer a.wg.Done()
 	key := a.Name() + "lint"
@@ -184,7 +184,7 @@ func (a *Revive) lint() (bool, error) {
 			Text:    err.Error(),
 			Success: util.BoolPointer(false),
 		})
-		return false, err
+		return err
 	}
 
 	// Watch for output
@@ -210,19 +210,17 @@ func (a *Revive) lint() (bool, error) {
 					Key:     &key,
 				})
 
-				return true, nil
+				return nil
 			}
 
 			a.msg(Msg{
-				Text:    fmt.Sprintf("lint failed, exit code %d", out),
+				Text:    fmt.Sprintf("lint failed"),
 				Success: util.BoolPointer(false),
 				Loading: util.BoolPointer(false),
 				Key:     &key,
 			})
-
-			return false, fmt.Errorf("lint failed, exit code %d", line)
 		}
 	}
 
-	return false, fmt.Errorf("lint failed")
+	return fmt.Errorf("lint failed")
 }

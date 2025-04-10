@@ -164,7 +164,7 @@ loop:
 	})
 }
 
-func (s *Svelte) check() (bool, error) {
+func (s *Svelte) check() error {
 	s.wg.Add(1)
 	defer s.wg.Done()
 	key := s.Name() + "check"
@@ -184,7 +184,7 @@ func (s *Svelte) check() (bool, error) {
 			Text:    err.Error(),
 			Success: util.BoolPointer(false),
 		})
-		return false, err
+		return err
 	}
 
 	// Watch for output
@@ -210,19 +210,17 @@ func (s *Svelte) check() (bool, error) {
 					Key:     &key,
 				})
 
-				return true, nil
+				return nil
 			}
 
 			s.msg(Msg{
-				Text:    fmt.Sprintf("check failed with exit code %d", out),
+				Text:    fmt.Sprintf("check failed"),
 				Success: util.BoolPointer(false),
 				Loading: util.BoolPointer(false),
 				Key:     &key,
 			})
-
-			return false, fmt.Errorf("check failed with exit code %d", line)
 		}
 	}
 
-	return false, fmt.Errorf("check failed")
+	return fmt.Errorf("check failed")
 }
