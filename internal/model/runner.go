@@ -1,7 +1,9 @@
 package model
 
 import (
+	"context"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/key"
@@ -13,12 +15,10 @@ import (
 )
 
 type Runner struct {
+	ctx    context.Context
+	cancel context.CancelFunc
 	width  *int
 	height *int
-
-	prefix    lipgloss.Style
-	checkmark string
-	xmark     string
 
 	header   *Header
 	terminal *Terminal
@@ -30,38 +30,21 @@ type Runner struct {
 	apps    []*app.App
 }
 
-func NewRunner(msgChan chan app.Msg, applications []*app.App) *Runner {
-
-	prefix := lipgloss.NewStyle().
-		Padding(0, 1, 0, 1).
-		Margin(0, 1, 0, 1).
-		Background(lipgloss.Color("#89dceb")).
-		Foreground(lipgloss.Color("#11111b"))
-
-	checkmark := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#a6e3a1")).
-		Bold(true).
-		Render("✓")
-
-	xmark := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#f38ba8")).
-		Bold(true).
-		Render("✕")
-
+func NewRunner(applications []*app.App, msgChan chan app.Msg) *Runner {
+	ctx, cancel := context.WithCancel(context.Background())
 	mpl := 0
+
 	for _, app := range applications {
-		if len(app.Name) > mpl {
-			mpl = len(app.Name)
+		if len((*app).Name()) > mpl {
+			mpl = len((*app).Name())
 		}
 	}
 
 	return &Runner{
+		ctx:    ctx,
+		cancel: cancel,
 		width:  nil,
 		height: nil,
-
-		prefix:    prefix,
-		checkmark: checkmark,
-		xmark:     xmark,
 
 		header:   NewHeader(),
 		terminal: NewTerminal(mpl + 1),
@@ -75,6 +58,10 @@ func NewRunner(msgChan chan app.Msg, applications []*app.App) *Runner {
 }
 
 func (m Runner) Init() tea.Cmd {
+	for _, a := range m.apps {
+		(*a).Start(m.ctx)
+	}
+
 	return tea.Batch(
 		m.spinner.Tick,
 		func() tea.Msg {
@@ -94,18 +81,9 @@ func (m Runner) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.Key != nil && msg.Loading != nil && !*msg.Loading {
 			for i, prev := range m.msgs {
 				if prev.Key != nil && prev.Loading != nil && *prev.Key == *msg.Key && *prev.Loading {
-					m.msgs = append(m.msgs[:i], m.msgs[i+1:]...)
+					m.msgs = slices.Delete(m.msgs, i, i+1)
 					break
 				}
-			}
-		}
-
-		// Set current state
-		if msg.Loading != nil {
-			if *msg.Loading {
-				msg.App.Loading = nil
-			} else {
-				msg.App.Loading = msg.Success
 			}
 		}
 
@@ -130,8 +108,18 @@ func (m Runner) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.help.Toggle()
 
 		case key.Matches(msg, m.help.keys.Quit):
-			return m, tea.Quit
+			return m, func() tea.Msg {
+				m.cancel()
+				for _, a := range m.apps {
+					(*a).Wait()
+				}
+
+				return tea.QuitMsg{}
+			}
 		}
+
+	case tea.QuitMsg:
+		return m, tea.Quit
 
 	case tea.MouseMsg:
 		switch msg.Button {
@@ -160,9 +148,9 @@ func (m Runner) term() (rows []string) {
 
 		if msg.Success != nil {
 			if *msg.Success {
-				item = append(item, m.checkmark)
+				item = append(item, checkmark)
 			} else {
-				item = append(item, m.xmark)
+				item = append(item, xmark)
 			}
 		}
 
@@ -170,7 +158,7 @@ func (m Runner) term() (rows []string) {
 		itemStr := strings.Join(item, " ")
 
 		// Render the row
-		rows = append(rows, m.terminal.GenItem(msg.Time, msg.App.Name, itemStr, msg.App.Color, *m.width))
+		rows = append(rows, m.terminal.GenItem(msg.Time, (*msg.App).Name(), itemStr, (*msg.App).Color(), *m.width))
 	}
 
 	return rows
@@ -180,15 +168,15 @@ func (m Runner) head() (items []string) {
 	for _, app := range m.apps {
 		item := []string{}
 
-		if app.Loading == nil {
+		if (*app).Success() == nil {
 			item = append(item, m.spinner.View())
-		} else if *app.Loading {
-			item = append(item, m.checkmark)
+		} else if *(*app).Success() {
+			item = append(item, checkmark)
 		} else {
-			item = append(item, m.xmark)
+			item = append(item, xmark)
 		}
 
-		item = append(item, app.Name)
+		item = append(item, (*app).Name())
 		items = append(items, m.header.GenItem(strings.Join(item, " ")))
 	}
 

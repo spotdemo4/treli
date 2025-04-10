@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"slices"
@@ -13,96 +14,108 @@ import (
 	"github.com/spotdemo4/treli/internal/util"
 )
 
-type Buf struct {
+type Golang struct {
 	app     *App
 	success *bool
 	dir     string
 	exts    []string
 	msgs    chan Msg
 	wg      *sync.WaitGroup
+
+	runWg *sync.WaitGroup
 }
 
-func NewBuf(dir string, msgs chan Msg) (*App, error) {
+func NewGolang(dir string, msgs chan Msg) (*App, error) {
 	// Check if buf is installed
-	_, err := exec.LookPath("buf")
+	_, err := exec.LookPath("go")
 	if err != nil {
-		return nil, fmt.Errorf("'buf' not found in PATH")
+		return nil, fmt.Errorf("'go' not found in PATH")
 	}
 
-	// Create wait group
+	// Create wait groups
 	wg := sync.WaitGroup{}
+	runWg := sync.WaitGroup{}
 
-	buf := Buf{
+	golang := Golang{
 		dir:  dir,
-		exts: []string{"proto"},
+		exts: []string{"go"},
 		msgs: msgs,
 		wg:   &wg,
+
+		runWg: &runWg,
 	}
 
-	app := App(&buf)
-	buf.app = &app
+	app := App(&golang)
+	golang.app = &app
 
 	return &app, nil
 }
 
-func (b *Buf) Name() string {
-	return "buf"
+func (a *Golang) Name() string {
+	return "go"
 }
 
-func (b *Buf) Color() string {
-	return "#cba6f7"
+func (a *Golang) Color() string {
+	return "#89dceb"
 }
 
-func (b *Buf) Success() *bool {
-	return b.success
+func (a *Golang) Success() *bool {
+	return a.success
 }
 
-func (b *Buf) Start(ctx context.Context) {
-	b.wg.Wait()
+func (a *Golang) Start(ctx context.Context) {
+	a.wg.Wait()
 
-	go b.lint()
-	go b.watch(ctx)
+	runCtx, runCancel := context.WithCancel(ctx)
+
+	go func() {
+		a.build()
+		a.run(runCtx)
+	}()
+	go a.watch(ctx, runCancel)
 }
 
-func (b *Buf) Wait() {
-	b.msg(Msg{
+func (a *Golang) Wait() {
+	key := a.Name() + "stop"
+
+	a.msg(Msg{
 		Text:    "Stopping",
 		Loading: util.BoolPointer(true),
-		Key:     util.StringPointer("buf stop"),
+		Key:     &key,
 	})
 
-	b.wg.Wait()
+	a.wg.Wait()
 
-	b.msg(Msg{
+	a.msg(Msg{
 		Text:    "Stopped",
 		Loading: util.BoolPointer(false),
 		Success: util.BoolPointer(true),
-		Key:     util.StringPointer("buf stop"),
+		Key:     &key,
 	})
 }
 
-func (b *Buf) msg(m Msg) {
+func (a *Golang) msg(m Msg) {
 	if m.Loading != nil {
 		if *m.Loading {
-			b.success = nil
+			a.success = nil
 		} else {
-			b.success = m.Success
+			a.success = m.Success
 		}
 	}
 
 	m.Time = time.Now()
-	m.App = b.app
-	b.msgs <- m
+	m.App = a.app
+	a.msgs <- m
 }
 
-func (b *Buf) watch(ctx context.Context) {
-	b.wg.Add(1)
-	defer b.wg.Done()
+func (a *Golang) watch(ctx context.Context, runCancel context.CancelFunc) {
+	a.wg.Add(1)
+	defer a.wg.Done()
 
 	// Create new watcher
-	watcher, err := util.Watch(b.dir, b.exts)
+	watcher, err := util.Watch(a.dir, a.exts)
 	if err != nil {
-		b.msg(Msg{
+		a.msg(Msg{
 			Text:    fmt.Sprintf("could not watch for changes: %s", err.Error()),
 			Success: util.BoolPointer(false),
 		})
@@ -112,7 +125,7 @@ func (b *Buf) watch(ctx context.Context) {
 	// Create new rate limiter
 	rl := util.NewRateLimiter(time.Second * 1)
 
-	b.msg(Msg{
+	a.msg(Msg{
 		Text: "watching for changes...",
 	})
 
@@ -128,7 +141,7 @@ loop:
 			}
 
 			// Validate ext
-			if !slices.Contains(b.exts, util.ExtNoDot(filepath.Ext(event.Name))) {
+			if !slices.Contains(a.exts, util.ExtNoDot(filepath.Ext(event.Name))) {
 				continue
 			}
 
@@ -141,16 +154,18 @@ loop:
 			go func() {
 				rl.Wait("")
 
-				b.msg(Msg{
-					Text: "file changed: " + strings.TrimPrefix(event.Name, b.dir),
+				runCancel()
+				a.runWg.Wait()
+
+				var runCtx context.Context
+				runCtx, runCancel = context.WithCancel(ctx)
+
+				a.msg(Msg{
+					Text: "file changed: " + strings.TrimPrefix(event.Name, a.dir),
 				})
 
-				ok, _ = b.lint()
-				if !ok {
-					return
-				}
-
-				b.generate()
+				a.build()
+				a.run(runCtx)
 			}()
 
 		case err, ok := <-watcher.Errors:
@@ -158,97 +173,95 @@ loop:
 				break loop
 			}
 
-			b.msg(Msg{
+			a.msg(Msg{
 				Text:    err.Error(),
 				Success: util.BoolPointer(false),
 			})
 		}
 	}
 
-	b.msg(Msg{
+	a.msg(Msg{
 		Text: "stopped watching for changes",
 	})
 }
 
-func (b *Buf) lint() (bool, error) {
-	b.wg.Add(1)
-	defer b.wg.Done()
+func (a *Golang) run(ctx context.Context) {
+	a.wg.Add(1)
+	defer a.wg.Done()
 
-	b.msg(Msg{
-		Text:    "linting",
-		Loading: util.BoolPointer(true),
-		Key:     util.StringPointer("buf lint"),
-	})
+	// Create cmd
+	cmd := exec.Command("./tmp/app")
+	cmd.Dir = a.dir
 
-	// Run buf lint
-	cmd := exec.Command("buf", "lint")
-	cmd.Dir = b.dir
+	// Start cmd
 	out, err := util.Run(cmd)
 	if err != nil {
-		b.msg(Msg{
+		a.msg(Msg{
 			Text:    err.Error(),
 			Success: util.BoolPointer(false),
 		})
-		return false, err
 	}
+
+	// Stop cmd on exit
+	a.wg.Add(1)
+	a.runWg.Add(1)
+	go func() {
+		defer a.wg.Done()
+		defer a.runWg.Done()
+		<-ctx.Done()
+
+		if err := cmd.Process.Signal(os.Interrupt); err != nil {
+			cmd.Process.Kill() // If the process is not responding to the interrupt signal, kill it
+		}
+	}()
 
 	// Watch for output
 	for line := range out {
 		switch line := line.(type) {
 		case util.Stdout:
-			b.msg(Msg{
+			a.msg(Msg{
 				Text: string(line),
 			})
 
 		case util.Stderr:
-			b.msg(Msg{
+			a.msg(Msg{
 				Text:    string(line),
 				Success: util.BoolPointer(false),
 			})
 
 		case util.ExitCode:
 			if line == 0 {
-				b.msg(Msg{
-					Text:    "lint successful",
-					Success: util.BoolPointer(true),
-					Loading: util.BoolPointer(false),
-					Key:     util.StringPointer("buf lint"),
+				a.msg(Msg{
+					Text: fmt.Sprintf("stopped"),
 				})
-
-				return true, nil
+			} else {
+				a.msg(Msg{
+					Text: fmt.Sprintf("stopped"),
+				})
 			}
-
-			b.msg(Msg{
-				Text:    fmt.Sprintf("lint failed, exit code %d", out),
-				Success: util.BoolPointer(false),
-				Loading: util.BoolPointer(false),
-				Key:     util.StringPointer("buf lint"),
-			})
-
-			return false, fmt.Errorf("lint failed, exit code %d", line)
 		}
 	}
 
-	return false, fmt.Errorf("lint failed")
+	return
 }
 
-func (b *Buf) generate() error {
-	b.wg.Add(1)
-	defer b.wg.Done()
-	key := b.Name() + "gen"
+func (v *Golang) build() error {
+	v.wg.Add(1)
+	defer v.wg.Done()
+	key := v.Name() + "build"
 
-	b.msg(Msg{
-		Text:    "generating proto files",
+	v.msg(Msg{
+		Text:    "building",
 		Loading: util.BoolPointer(true),
 		Key:     &key,
 	})
 
-	// Run buf gen
-	cmd := exec.Command("buf", "generate")
-	cmd.Dir = b.dir
+	// Run vite build
+	cmd := exec.Command("go", "build", "-o", "./tmp/app", "-tags", "dev")
+	cmd.Dir = v.dir
 	out, err := util.Run(cmd)
 	if err != nil {
-		b.msg(Msg{
+		v.msg(Msg{
 			Text:    err.Error(),
 			Success: util.BoolPointer(false),
 		})
@@ -259,20 +272,20 @@ func (b *Buf) generate() error {
 	for line := range out {
 		switch line := line.(type) {
 		case util.Stdout:
-			b.msg(Msg{
+			v.msg(Msg{
 				Text: string(line),
 			})
 
 		case util.Stderr:
-			b.msg(Msg{
+			v.msg(Msg{
 				Text:    string(line),
 				Success: util.BoolPointer(false),
 			})
 
 		case util.ExitCode:
 			if line == 0 {
-				b.msg(Msg{
-					Text:    "generate successful",
+				v.msg(Msg{
+					Text:    "build successful",
 					Success: util.BoolPointer(true),
 					Loading: util.BoolPointer(false),
 					Key:     &key,
@@ -281,16 +294,16 @@ func (b *Buf) generate() error {
 				return nil
 			}
 
-			b.msg(Msg{
-				Text:    fmt.Sprintf("generate failed with exit code %d", out),
+			v.msg(Msg{
+				Text:    fmt.Sprintf("build failed with exit code %d", out),
 				Success: util.BoolPointer(false),
 				Loading: util.BoolPointer(false),
 				Key:     &key,
 			})
 
-			return fmt.Errorf("generate failed with exit code %d", line)
+			return fmt.Errorf("build failed with exit code %d", line)
 		}
 	}
 
-	return fmt.Errorf("generate failed")
+	return fmt.Errorf("build failed")
 }

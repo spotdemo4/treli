@@ -13,7 +13,7 @@ import (
 	"github.com/spotdemo4/treli/internal/util"
 )
 
-type Svelte struct {
+type Prettier struct {
 	app     *App
 	success *bool
 	dir     string
@@ -22,7 +22,7 @@ type Svelte struct {
 	wg      *sync.WaitGroup
 }
 
-func NewSvelte(dir string, msgs chan Msg) (*App, error) {
+func NewPrettier(dir string, msgs chan Msg) (*App, error) {
 	// Check if buf is installed
 	_, err := exec.LookPath("npx")
 	if err != nil {
@@ -32,87 +32,87 @@ func NewSvelte(dir string, msgs chan Msg) (*App, error) {
 	// Create wait group
 	wg := sync.WaitGroup{}
 
-	svelte := Svelte{
+	prettier := Prettier{
 		dir:  dir,
-		exts: []string{"svelte"},
+		exts: []string{"js", "ts", "tsx", "jsx", "vue", "svelte", "mdx", "md"},
 		msgs: msgs,
 		wg:   &wg,
 	}
 
-	app := App(&svelte)
-	svelte.app = &app
+	app := App(&prettier)
+	prettier.app = &app
 
 	return &app, nil
 }
 
-func (s *Svelte) Name() string {
-	return "svelte"
+func (a *Prettier) Name() string {
+	return "prettier"
 }
 
-func (s *Svelte) Color() string {
+func (a *Prettier) Color() string {
 	return "#fab387"
 }
 
-func (s *Svelte) Success() *bool {
-	return s.success
+func (a *Prettier) Success() *bool {
+	return a.success
 }
 
-func (s *Svelte) Start(ctx context.Context) {
-	s.wg.Wait()
+func (a *Prettier) Start(ctx context.Context) {
+	a.wg.Wait()
 
-	go s.check()
-	go s.watch(ctx)
+	go a.lint()
+	go a.watch(ctx)
 }
 
-func (s *Svelte) Wait() {
-	s.msg(Msg{
-		Text:    "stopping",
+func (a *Prettier) Wait() {
+	a.msg(Msg{
+		Text:    "Stopping",
 		Loading: util.BoolPointer(true),
-		Key:     util.StringPointer("svelte stop"),
+		Key:     util.StringPointer(a.Name() + "stop"),
 	})
 
-	s.wg.Wait()
+	a.wg.Wait()
 
-	s.msg(Msg{
-		Text:    "stopped",
+	a.msg(Msg{
+		Text:    "Stopped",
 		Loading: util.BoolPointer(false),
 		Success: util.BoolPointer(true),
-		Key:     util.StringPointer("svelte stop"),
+		Key:     util.StringPointer(a.Name() + "stop"),
 	})
 }
 
-func (s *Svelte) msg(m Msg) {
+func (a *Prettier) msg(m Msg) {
 	if m.Loading != nil {
 		if *m.Loading {
-			s.success = nil
+			a.success = nil
 		} else {
-			s.success = m.Success
+			a.success = m.Success
 		}
 	}
-	m.Time = time.Now()
-	m.App = s.app
 
-	s.msgs <- m
+	m.Time = time.Now()
+	m.App = a.app
+	a.msgs <- m
 }
 
-func (s *Svelte) watch(ctx context.Context) {
-	s.wg.Add(1)
-	defer s.wg.Done()
+func (a *Prettier) watch(ctx context.Context) {
+	a.wg.Add(1)
+	defer a.wg.Done()
 
 	// Create new watcher
-	watcher, err := util.Watch(s.dir, s.exts)
+	watcher, err := util.Watch(a.dir, a.exts)
 	if err != nil {
-		s.msg(Msg{
+		a.msg(Msg{
 			Text:    fmt.Sprintf("could not watch for changes: %s", err.Error()),
 			Success: util.BoolPointer(false),
 		})
 	}
 	defer watcher.Close()
 
-	// Create new rate limit
+	// Create new rate limiter
 	rl := util.NewRateLimiter(time.Second * 1)
 
-	s.msg(Msg{
+	a.msg(Msg{
 		Text: "watching for changes...",
 	})
 
@@ -128,7 +128,7 @@ loop:
 			}
 
 			// Validate ext
-			if !slices.Contains(s.exts, util.ExtNoDot(filepath.Ext(event.Name))) {
+			if !slices.Contains(a.exts, util.ExtNoDot(filepath.Ext(event.Name))) {
 				continue
 			}
 
@@ -141,10 +141,10 @@ loop:
 			go func() {
 				rl.Wait("")
 
-				s.msg(Msg{
-					Text: "file changed: " + strings.TrimPrefix(event.Name, s.dir),
+				a.msg(Msg{
+					Text: "file changed: " + strings.TrimPrefix(event.Name, a.dir),
 				})
-				s.check()
+				a.lint()
 			}()
 
 		case err, ok := <-watcher.Errors:
@@ -152,35 +152,35 @@ loop:
 				break loop
 			}
 
-			s.msg(Msg{
+			a.msg(Msg{
 				Text:    err.Error(),
 				Success: util.BoolPointer(false),
 			})
 		}
 	}
 
-	s.msg(Msg{
+	a.msg(Msg{
 		Text: "stopped watching for changes",
 	})
 }
 
-func (s *Svelte) check() (bool, error) {
-	s.wg.Add(1)
-	defer s.wg.Done()
-	key := s.Name() + "check"
+func (a *Prettier) lint() (bool, error) {
+	a.wg.Add(1)
+	defer a.wg.Done()
+	key := a.Name() + "lint"
 
-	s.msg(Msg{
-		Text:    "checking",
+	a.msg(Msg{
+		Text:    "linting",
 		Loading: util.BoolPointer(true),
 		Key:     &key,
 	})
 
-	// Run svelte-check
-	cmd := exec.Command("npx", "svelte-check")
-	cmd.Dir = s.dir
+	// Run revive
+	cmd := exec.Command("npx", "prettier", "--check", ".")
+	cmd.Dir = a.dir
 	out, err := util.Run(cmd)
 	if err != nil {
-		s.msg(Msg{
+		a.msg(Msg{
 			Text:    err.Error(),
 			Success: util.BoolPointer(false),
 		})
@@ -191,20 +191,20 @@ func (s *Svelte) check() (bool, error) {
 	for line := range out {
 		switch line := line.(type) {
 		case util.Stdout:
-			s.msg(Msg{
+			a.msg(Msg{
 				Text: string(line),
 			})
 
 		case util.Stderr:
-			s.msg(Msg{
+			a.msg(Msg{
 				Text:    string(line),
 				Success: util.BoolPointer(false),
 			})
 
 		case util.ExitCode:
 			if line == 0 {
-				s.msg(Msg{
-					Text:    "check successful",
+				a.msg(Msg{
+					Text:    "lint successful",
 					Success: util.BoolPointer(true),
 					Loading: util.BoolPointer(false),
 					Key:     &key,
@@ -213,16 +213,16 @@ func (s *Svelte) check() (bool, error) {
 				return true, nil
 			}
 
-			s.msg(Msg{
-				Text:    fmt.Sprintf("check failed with exit code %d", out),
+			a.msg(Msg{
+				Text:    fmt.Sprintf("lint failed, exit code %d", out),
 				Success: util.BoolPointer(false),
 				Loading: util.BoolPointer(false),
 				Key:     &key,
 			})
 
-			return false, fmt.Errorf("check failed with exit code %d", line)
+			return false, fmt.Errorf("lint failed, exit code %d", line)
 		}
 	}
 
-	return false, fmt.Errorf("check failed")
+	return false, fmt.Errorf("lint failed")
 }
