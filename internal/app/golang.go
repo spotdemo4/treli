@@ -245,12 +245,12 @@ func (a *Golang) run(ctx context.Context) {
 	return
 }
 
-func (v *Golang) build() error {
-	v.wg.Add(1)
-	defer v.wg.Done()
-	key := v.Name() + "build"
+func (a *Golang) build() error {
+	a.wg.Add(1)
+	defer a.wg.Done()
+	key := a.Name() + "build"
 
-	v.msg(Msg{
+	a.msg(Msg{
 		Text:    "building",
 		Loading: util.BoolPointer(true),
 		Key:     &key,
@@ -258,10 +258,10 @@ func (v *Golang) build() error {
 
 	// Run vite build
 	cmd := exec.Command("go", "build", "-o", "./tmp/app", "-tags", "dev")
-	cmd.Dir = v.dir
+	cmd.Dir = a.dir
 	out, err := util.Run(cmd)
 	if err != nil {
-		v.msg(Msg{
+		a.msg(Msg{
 			Text:    err.Error(),
 			Success: util.BoolPointer(false),
 		})
@@ -272,19 +272,19 @@ func (v *Golang) build() error {
 	for line := range out {
 		switch line := line.(type) {
 		case util.Stdout:
-			v.msg(Msg{
+			a.msg(Msg{
 				Text: string(line),
 			})
 
 		case util.Stderr:
-			v.msg(Msg{
+			a.msg(Msg{
 				Text:    string(line),
 				Success: util.BoolPointer(false),
 			})
 
 		case util.ExitCode:
 			if line == 0 {
-				v.msg(Msg{
+				a.msg(Msg{
 					Text:    "build successful",
 					Success: util.BoolPointer(true),
 					Loading: util.BoolPointer(false),
@@ -294,7 +294,7 @@ func (v *Golang) build() error {
 				return nil
 			}
 
-			v.msg(Msg{
+			a.msg(Msg{
 				Text:    fmt.Sprintf("build failed with exit code %d", out),
 				Success: util.BoolPointer(false),
 				Loading: util.BoolPointer(false),
