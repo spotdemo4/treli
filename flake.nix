@@ -95,7 +95,7 @@
 
                 cd "''${git_root}"
                 echo "Linting"
-                revive -config revive.toml -formatter friendly ./...
+                revive -config revive.toml -set_exit_status ./...
               '';
             })
 
