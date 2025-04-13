@@ -53,7 +53,6 @@ func FindApps(path string, c chan Msg) ([]*App, error) {
 				continue
 			}
 			fmt.Println("found app buf")
-
 			apps = append(apps, buf)
 
 		case "vite.config.js", "vite.config.ts":
@@ -63,7 +62,6 @@ func FindApps(path string, c chan Msg) ([]*App, error) {
 				continue
 			}
 			fmt.Println("found app vite")
-
 			apps = append(apps, vite)
 
 		case "svelte.config.js", "svelte.config.ts":
@@ -73,7 +71,6 @@ func FindApps(path string, c chan Msg) ([]*App, error) {
 				continue
 			}
 			fmt.Println("found app svelte")
-
 			apps = append(apps, svelte)
 
 		case "revive.toml":
@@ -83,7 +80,6 @@ func FindApps(path string, c chan Msg) ([]*App, error) {
 				continue
 			}
 			fmt.Println("found app revive")
-
 			apps = append(apps, revive)
 
 		case "eslint.config.js", "eslint.config.ts":
@@ -93,7 +89,6 @@ func FindApps(path string, c chan Msg) ([]*App, error) {
 				continue
 			}
 			fmt.Println("found app eslint")
-
 			apps = append(apps, eslint)
 
 		case ".prettierrc":
@@ -103,7 +98,6 @@ func FindApps(path string, c chan Msg) ([]*App, error) {
 				continue
 			}
 			fmt.Println("found app prettier")
-
 			apps = append(apps, prettier)
 
 		case "go.mod":
@@ -113,8 +107,25 @@ func FindApps(path string, c chan Msg) ([]*App, error) {
 				continue
 			}
 			fmt.Println("found app golang")
-
 			apps = append(apps, golang)
+
+		case "sqlc.yaml":
+			sqlc, err := NewSQLc(dir, c)
+			if err != nil {
+				fmt.Printf("found %s but could not add it: %s\n", f.Filename, err.Error())
+				continue
+			}
+			fmt.Println("found app sqlc")
+			apps = append(apps, sqlc)
+
+		case ".sqlfluff":
+			fluff, err := NewSQLFluff(dir, c)
+			if err != nil {
+				fmt.Printf("found %s but could not add it: %s\n", f.Filename, err.Error())
+				continue
+			}
+			fmt.Println("found app fluff")
+			apps = append(apps, fluff)
 		}
 	}
 
