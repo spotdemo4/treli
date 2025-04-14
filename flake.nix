@@ -25,20 +25,8 @@
         app = pkgs.buildGoModule {
           inherit pname version;
           src = gitignore.lib.gitignoreSource ./.;
-          vendorHash = "sha256-pUFGkQzbv2sRZ/0rjehL2t+gwZsLWh/TAFYfakCs5g8=";
+          vendorHash = "sha256-nF4q1ehzHuPiXFietHS5mvD9defhG0Nj7P1t/u+/jxs=";
           env.CGO_ENABLED = 0;
-        };
-
-        protoc-gen-connect-openapi = pkgs.buildGoModule {
-          name = "protoc-gen-connect-openapi";
-          src = pkgs.fetchFromGitHub {
-            owner = "sudorandom";
-            repo = "protoc-gen-connect-openapi";
-            rev = "v0.16.1";
-            sha256 = "sha256-3XBQCc9H9N/AZm/8J5bJRgBhVtoZKFvbdTB+glHxYdA=";
-          };
-          vendorHash = "sha256-CIiG/XhV8xxjYY0sZcSvIFcJ1Wh8LyDDwqem2cSSwBA=";
-          nativeCheckInputs = with pkgs; [ less ];
         };
 
       in
@@ -53,24 +41,6 @@
             gotools
             gopls
             revive
-
-            # Server
-            sqlc
-
-            # database
-            sqlite
-            dbmate
-            sqlfluff
-            
-            # Protobuf
-            buf
-            protoc-gen-go
-            protoc-gen-connect-go
-            protoc-gen-es
-            protoc-gen-connect-openapi
-
-            # Client
-            nodejs_22
 
             # Update
             (writeShellApplication {
