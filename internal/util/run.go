@@ -11,7 +11,7 @@ type Stdout string
 type Stderr string
 type ExitCode int
 
-func Run(cmd *exec.Cmd, ctx context.Context) (chan any, error) {
+func Run(ctx context.Context, cmd *exec.Cmd) (chan any, error) {
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return nil, err

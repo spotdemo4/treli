@@ -173,7 +173,7 @@ func (a *App) cmd(ctx context.Context, command string) (bool, error) {
 	}
 
 	// Check
-	out, err := util.Run(cmd, ctx)
+	out, err := util.Run(ctx, cmd)
 	if err != nil {
 		a.State = StateError
 		a.msg(
