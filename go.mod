@@ -8,6 +8,8 @@ require (
 	github.com/charmbracelet/bubbletea v1.3.4
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/fsnotify/fsnotify v1.9.0
+	github.com/goccy/go-yaml v1.17.1
+	github.com/google/uuid v1.6.0
 	github.com/joho/godotenv v1.5.1
 )
 

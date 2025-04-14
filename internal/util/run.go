@@ -2,6 +2,8 @@ package util
 
 import (
 	"bufio"
+	"context"
+	"os"
 	"os/exec"
 )
 
@@ -9,7 +11,7 @@ type Stdout string
 type Stderr string
 type ExitCode int
 
-func Run(cmd *exec.Cmd) (chan any, error) {
+func Run(cmd *exec.Cmd, ctx context.Context) (chan any, error) {
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return nil, err
@@ -23,6 +25,7 @@ func Run(cmd *exec.Cmd) (chan any, error) {
 	}
 
 	c := make(chan any, 10)
+	quit := make(chan int)
 
 	go func() {
 		scan := bufio.NewScanner(stdout)
@@ -38,7 +41,18 @@ func Run(cmd *exec.Cmd) (chan any, error) {
 	}()
 
 	go func() {
+		select {
+		case <-quit:
+		case <-ctx.Done():
+			if err := cmd.Process.Signal(os.Interrupt); err != nil {
+				cmd.Process.Kill() // If the process is not responding to the interrupt signal, kill it
+			}
+		}
+	}()
+
+	go func() {
 		defer close(c)
+		defer close(quit)
 
 		if err := cmd.Wait(); err != nil {
 			if exitError, ok := err.(*exec.ExitError); ok {
@@ -49,6 +63,8 @@ func Run(cmd *exec.Cmd) (chan any, error) {
 		} else {
 			c <- ExitCode(0)
 		}
+
+		quit <- 0
 	}()
 
 	return c, nil

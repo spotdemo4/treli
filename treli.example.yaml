@@ -1,0 +1,75 @@
+apps:
+  - buf:
+      color: "#cba6f7"
+      exts:
+        - proto
+      check: buf lint
+      run: buf generate
+
+  - eslint:
+      color: "#fab387"
+      dir: client
+      exts:
+        - js
+        - ts
+        - tsx
+        - jsx
+        - vue
+        - svelte
+      check: npx eslint .
+
+  - golang:
+      color: "#89dceb"
+      dir: server
+      exts:
+        - go
+      check: go build -o ./tmp/app -tags dev
+      run: ./tmp/app
+
+  - prettier:
+      color: "#fab387"
+      dir: client
+      exts:
+        - js
+        - ts
+        - tsx
+        - jsx
+        - vue
+        - svelte
+      invert: true
+      check: npx prettier --check .
+      run: npx prettier --write .
+  
+  - revive:
+      color: "#89dceb"
+      dir: server
+      exts:
+        - go
+      check: revive -config revive.toml -set_exit_status ./...
+    
+  - sqlc:
+      color: "#a6e3a1"
+      dir: server
+      exts:
+        - sql
+      check: sqlc vet
+      run: sqlc generate
+    
+  - sqlfluff:
+      color: "#a6e3a1"
+      dir: server/db
+      exts:
+        - sql
+      check: sqlfluff lint
+
+  - svelte:
+      color: "#fab387"
+      dir: client
+      exts:
+        - svelte
+      check: npx svelte-check
+      
+  - vite:
+      color: "#fab387"
+      dir: client
+      run: vite dev

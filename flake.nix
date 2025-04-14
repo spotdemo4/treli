@@ -29,6 +29,18 @@
           env.CGO_ENABLED = 0;
         };
 
+        protoc-gen-connect-openapi = pkgs.buildGoModule {
+          name = "protoc-gen-connect-openapi";
+          src = pkgs.fetchFromGitHub {
+            owner = "sudorandom";
+            repo = "protoc-gen-connect-openapi";
+            rev = "v0.16.1";
+            sha256 = "sha256-3XBQCc9H9N/AZm/8J5bJRgBhVtoZKFvbdTB+glHxYdA=";
+          };
+          vendorHash = "sha256-CIiG/XhV8xxjYY0sZcSvIFcJ1Wh8LyDDwqem2cSSwBA=";
+          nativeCheckInputs = with pkgs; [ less ];
+        };
+
       in
       {
         devShells.default = pkgs.mkShell {
@@ -41,6 +53,24 @@
             gotools
             gopls
             revive
+
+            # Server
+            sqlc
+
+            # database
+            sqlite
+            dbmate
+            sqlfluff
+            
+            # Protobuf
+            buf
+            protoc-gen-go
+            protoc-gen-connect-go
+            protoc-gen-es
+            protoc-gen-connect-openapi
+
+            # Client
+            nodejs_22
 
             # Update
             (writeShellApplication {

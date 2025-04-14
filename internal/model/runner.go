@@ -1,9 +1,7 @@
 package model
 
 import (
-	"context"
 	"fmt"
-	"slices"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/key"
@@ -15,8 +13,6 @@ import (
 )
 
 type Runner struct {
-	ctx    context.Context
-	cancel context.CancelFunc
 	width  *int
 	height *int
 
@@ -31,18 +27,15 @@ type Runner struct {
 }
 
 func NewRunner(applications []*app.App, msgChan chan app.Msg) *Runner {
-	ctx, cancel := context.WithCancel(context.Background())
 	mpl := 0
 
 	for _, app := range applications {
-		if len((*app).Name()) > mpl {
-			mpl = len((*app).Name())
+		if len((*app).Name) > mpl {
+			mpl = len((*app).Name)
 		}
 	}
 
 	return &Runner{
-		ctx:    ctx,
-		cancel: cancel,
 		width:  nil,
 		height: nil,
 
@@ -58,10 +51,6 @@ func NewRunner(applications []*app.App, msgChan chan app.Msg) *Runner {
 }
 
 func (m Runner) Init() tea.Cmd {
-	for _, a := range m.apps {
-		(*a).Start(m.ctx)
-	}
-
 	return tea.Batch(
 		m.spinner.Tick,
 		func() tea.Msg {
@@ -77,11 +66,11 @@ func (m Runner) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 
 	case app.Msg:
-		// Remove old message with the same key
-		if msg.Key != nil && msg.Loading != nil && !*msg.Loading {
+		// Edit old message with the same key
+		if msg.State == app.StateError || msg.State == app.StateSuccess {
 			for i, prev := range m.msgs {
-				if prev.Key != nil && prev.Loading != nil && *prev.Key == *msg.Key && *prev.Loading {
-					m.msgs = slices.Delete(m.msgs, i, i+1)
+				if prev.Key == msg.Key && prev.State == app.StateLoading {
+					m.msgs[i].State = app.StateIdle
 					break
 				}
 			}
@@ -109,9 +98,8 @@ func (m Runner) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case key.Matches(msg, m.help.keys.Quit):
 			return m, func() tea.Msg {
-				m.cancel()
 				for _, a := range m.apps {
-					(*a).Wait()
+					(*a).Stop()
 				}
 
 				return tea.QuitMsg{}
@@ -124,10 +112,10 @@ func (m Runner) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.MouseMsg:
 		switch msg.Button {
 		case tea.MouseButtonWheelDown:
-			m.terminal.Viewport.LineDown(1)
+			m.terminal.Viewport.ScrollDown(1)
 
 		case tea.MouseButtonWheelUp:
-			m.terminal.Viewport.LineUp(1)
+			m.terminal.Viewport.ScrollUp(1)
 		}
 	}
 
@@ -142,41 +130,39 @@ func (m Runner) term() (rows []string) {
 	for _, msg := range m.msgs {
 		item := []string{}
 
-		if msg.Loading != nil && *msg.Loading {
+		switch msg.State {
+		case app.StateLoading:
 			item = append(item, m.spinner.View())
-		}
-
-		if msg.Success != nil {
-			if *msg.Success {
-				item = append(item, checkmark)
-			} else {
-				item = append(item, xmark)
-			}
+		case app.StateSuccess:
+			item = append(item, checkmark)
+		case app.StateError:
+			item = append(item, xmark)
 		}
 
 		item = append(item, msg.Text)
 		itemStr := strings.Join(item, " ")
 
 		// Render the row
-		rows = append(rows, m.terminal.GenItem(msg.Time, (*msg.App).Name(), itemStr, (*msg.App).Color(), *m.width))
+		rows = append(rows, m.terminal.GenItem(msg.Time, msg.AppName, itemStr, msg.AppColor, *m.width))
 	}
 
 	return rows
 }
 
 func (m Runner) head() (items []string) {
-	for _, app := range m.apps {
+	for _, a := range m.apps {
 		item := []string{}
 
-		if (*app).Success() == nil {
+		switch a.State {
+		case app.StateLoading:
 			item = append(item, m.spinner.View())
-		} else if *(*app).Success() {
+		case app.StateSuccess:
 			item = append(item, checkmark)
-		} else {
+		case app.StateError:
 			item = append(item, xmark)
 		}
 
-		item = append(item, (*app).Name())
+		item = append(item, (*a).Name)
 		items = append(items, m.header.GenItem(strings.Join(item, " ")))
 	}
 

@@ -2,132 +2,256 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"path/filepath"
+	"os/exec"
+	"strings"
+	"sync"
 	"time"
 
-	"github.com/boyter/gocodewalker"
+	"github.com/google/uuid"
+	"github.com/spotdemo4/treli/internal/util"
 )
 
-type App interface {
-	Name() string
-	Color() string
-	Success() *bool
-	Start(context.Context)
-	Wait()
+type App struct {
+	Name        string
+	Color       string
+	Dir         string
+	Exts        []string
+	State       State
+	InvertCheck bool
+
+	checkstr string
+	buildstr string
+	startstr string
+
+	msgs        chan Msg
+	wg          *sync.WaitGroup
+	ctx         context.Context
+	cancel      context.CancelFunc
+	ratelimiter *util.RateLimiter
 }
 
 type Msg struct {
-	Text    string
-	Time    time.Time
-	Key     *string
-	Loading *bool
-	Success *bool
+	AppName  string
+	AppColor string
+	AppState State
 
-	App *App
+	Text  string
+	Time  time.Time
+	Key   string
+	State State
 }
 
-func FindApps(path string, c chan Msg) ([]*App, error) {
-	apps := []*App{}
+func New(
+	ctx context.Context,
+	msgs chan Msg,
+	name string,
+	color string,
+	dir string,
+	exts []string,
+	invertCheck bool,
 
-	fileListQueue := make(chan *gocodewalker.File, 100)
-	fileWalker := gocodewalker.NewFileWalker(path, fileListQueue)
-	fileWalker.IncludeHidden = true
+	check string,
+	build string,
+	start string,
+) *App {
+	app := App{
+		Name:        name,
+		Color:       color,
+		Dir:         dir,
+		Exts:        exts,
+		State:       StateIdle,
+		InvertCheck: invertCheck,
 
-	errorHandler := func(e error) bool {
-		fmt.Printf("Error: %s", e.Error())
-		return true
+		checkstr: check,
+		buildstr: build,
+		startstr: start,
+
+		msgs:        msgs,
+		wg:          &sync.WaitGroup{},
+		ctx:         ctx,
+		cancel:      nil,
+		ratelimiter: util.NewRateLimiter(time.Second * 1),
 	}
-	fileWalker.SetErrorHandler(errorHandler)
 
-	go fileWalker.Start()
+	return &app
+}
 
-	for f := range fileListQueue {
-		dir := filepath.Dir(f.Location)
+func (a *App) Run() {
+	// Rate limit calls
+	ok := a.ratelimiter.Check()
+	if !ok {
+		return
+	}
+	a.ratelimiter.Wait()
 
-		switch f.Filename {
-		case "buf.yaml", "buf.yml":
-			buf, err := NewBuf(dir, c)
-			if err != nil {
-				fmt.Printf("found %s but could not add it: %s\n", f.Filename, err.Error())
-				continue
+	// Stop previously running instances
+	a.Stop()
+	ctx, cancel := context.WithCancel(a.ctx)
+	a.cancel = cancel
+
+	_, err := a.Check(ctx)
+	if a.InvertCheck && err == nil {
+		return
+	}
+	if !a.InvertCheck && err != nil {
+		return
+	}
+
+	err = ctx.Err()
+	if err != nil {
+		return
+	}
+
+	_, err = a.Build(ctx)
+	if err != nil {
+		return
+	}
+
+	err = ctx.Err()
+	if err != nil {
+		return
+	}
+
+	_, err = a.Start(ctx)
+}
+
+func (a *App) Check(ctx context.Context) (bool, error) {
+	return a.cmd(ctx, a.checkstr)
+}
+
+func (a *App) Build(ctx context.Context) (bool, error) {
+	return a.cmd(ctx, a.buildstr)
+}
+
+func (a *App) Start(ctx context.Context) (bool, error) {
+	return a.cmd(ctx, a.startstr)
+}
+
+func (a *App) Wait() {
+	a.wg.Wait()
+}
+
+func (a *App) Stop() {
+	if a.cancel != nil {
+		a.cancel()
+		a.wg.Wait()
+	}
+}
+
+func (a *App) cmd(ctx context.Context, command string) (bool, error) {
+	if command == "" {
+		return false, nil
+	}
+
+	a.wg.Add(1)
+	defer a.wg.Done()
+
+	a.State = StateLoading
+	k := a.msg(command, &MsgOpts{
+		State: StateLoading,
+	})
+
+	// Create exec.Cmd
+	var cmd *exec.Cmd
+	c := strings.Split(command, " ")
+	if len(c) == 1 {
+		cmd = exec.Command(c[0])
+	} else if len(c) > 1 {
+		cmd = exec.Command(c[0], c[1:]...)
+	} else {
+		a.State = StateError
+		a.msg("invalid command", &MsgOpts{
+			State: StateError,
+			Key:   &k,
+		})
+		return true, errors.New("invalid command")
+	}
+	if a.Dir != "" {
+		cmd.Dir = a.Dir
+	}
+
+	// Check
+	out, err := util.Run(cmd, ctx)
+	if err != nil {
+		a.State = StateError
+		a.msg(
+			fmt.Sprintf("could not run `%s`: %s", command, err.Error()),
+			&MsgOpts{
+				State: StateError,
+				Key:   &k,
+			},
+		)
+
+		return true, err
+	}
+
+	// Watch for output
+	for line := range out {
+		switch line := line.(type) {
+		case util.Stdout:
+			a.msg(string(line), nil)
+
+		case util.Stderr:
+			a.msg(string(line), &MsgOpts{
+				State: StateError,
+			})
+
+		case util.ExitCode:
+			if line != 0 {
+				a.State = StateError
+				a.msg(command, &MsgOpts{
+					State: StateError,
+					Key:   &k,
+				})
+
+				return true, errors.New("exited with bad code")
 			}
-			fmt.Println("found app buf")
-			apps = append(apps, buf)
 
-		case "vite.config.js", "vite.config.ts":
-			vite, err := NewVite(dir, c)
-			if err != nil {
-				fmt.Printf("found %s but could not add it: %s\n", f.Filename, err.Error())
-				continue
-			}
-			fmt.Println("found app vite")
-			apps = append(apps, vite)
-
-		case "svelte.config.js", "svelte.config.ts":
-			svelte, err := NewSvelte(dir, c)
-			if err != nil {
-				fmt.Printf("found %s but could not add it: %s\n", f.Filename, err.Error())
-				continue
-			}
-			fmt.Println("found app svelte")
-			apps = append(apps, svelte)
-
-		case "revive.toml":
-			revive, err := NewRevive(dir, c)
-			if err != nil {
-				fmt.Printf("found %s but could not add it: %s\n", f.Filename, err.Error())
-				continue
-			}
-			fmt.Println("found app revive")
-			apps = append(apps, revive)
-
-		case "eslint.config.js", "eslint.config.ts":
-			eslint, err := NewESLint(dir, c)
-			if err != nil {
-				fmt.Printf("found %s but could not add it: %s\n", f.Filename, err.Error())
-				continue
-			}
-			fmt.Println("found app eslint")
-			apps = append(apps, eslint)
-
-		case ".prettierrc":
-			prettier, err := NewPrettier(dir, c)
-			if err != nil {
-				fmt.Printf("found %s but could not add it: %s\n", f.Filename, err.Error())
-				continue
-			}
-			fmt.Println("found app prettier")
-			apps = append(apps, prettier)
-
-		case "go.mod":
-			golang, err := NewGolang(dir, c)
-			if err != nil {
-				fmt.Printf("found %s but could not add it: %s\n", f.Filename, err.Error())
-				continue
-			}
-			fmt.Println("found app golang")
-			apps = append(apps, golang)
-
-		case "sqlc.yaml":
-			sqlc, err := NewSQLc(dir, c)
-			if err != nil {
-				fmt.Printf("found %s but could not add it: %s\n", f.Filename, err.Error())
-				continue
-			}
-			fmt.Println("found app sqlc")
-			apps = append(apps, sqlc)
-
-		case ".sqlfluff":
-			fluff, err := NewSQLFluff(dir, c)
-			if err != nil {
-				fmt.Printf("found %s but could not add it: %s\n", f.Filename, err.Error())
-				continue
-			}
-			fmt.Println("found app fluff")
-			apps = append(apps, fluff)
+			a.State = StateSuccess
+			a.msg(command, &MsgOpts{
+				State: StateSuccess,
+				Key:   &k,
+			})
 		}
 	}
 
-	return apps, nil
+	return true, nil
+}
+
+type MsgOpts struct {
+	Key   *string
+	State State
+}
+
+func (a *App) msg(t string, opts *MsgOpts) string {
+	var key string
+	var state State
+
+	if opts != nil {
+		if opts.Key != nil {
+			key = *opts.Key
+		}
+		if opts.State != StateIdle {
+			state = opts.State
+		}
+	}
+	if key == "" {
+		key = uuid.NewString()
+	}
+
+	m := Msg{
+		AppName:  a.Name,
+		AppColor: a.Color,
+		AppState: a.State,
+
+		Text:  t,
+		Time:  time.Now(),
+		Key:   key,
+		State: state,
+	}
+	a.msgs <- m
+
+	return key
 }
