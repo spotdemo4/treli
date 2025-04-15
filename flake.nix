@@ -12,7 +12,7 @@
   outputs = { self, nixpkgs, gitignore }:
     let
       pname = "treli";
-      version = "0.0.5";
+      version = "0.0.6";
 
       supportedSystems = [ "x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin" ];
       forSystem = f: nixpkgs.lib.genAttrs supportedSystems (system: f {
