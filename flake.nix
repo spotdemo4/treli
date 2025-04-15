@@ -19,13 +19,12 @@
 
         pkgs = import nixpkgs { 
           inherit system;
-          config.allowUnfree = true;
         };
 
         app = pkgs.buildGoModule {
           inherit pname version;
           src = gitignore.lib.gitignoreSource ./.;
-          vendorHash = "sha256-nF4q1ehzHuPiXFietHS5mvD9defhG0Nj7P1t/u+/jxs=";
+          vendorHash = "sha256-QdW0DlOscw49bKD/ZaI1jSAkjjOHiB3WMedpi+Ni3iM=";
           env.CGO_ENABLED = 0;
         };
 
@@ -44,12 +43,13 @@
 
             # Update
             (writeShellApplication {
-              name = "ts-update";
+              name = "${pname}-update";
 
               text = ''
                 git_root=$(git rev-parse --show-toplevel)
-
                 cd "''${git_root}"
+
+                # Go
                 go get -u
                 go mod tidy
                 if ! git diff --exit-code go.mod go.sum; then
@@ -58,7 +58,7 @@
                   git commit -m "build(go): updated go dependencies"
                 fi
 
-                cd "''${git_root}"
+                # Nix
                 nix-update --flake --version=skip default
                 if ! git diff --exit-code flake.nix; then
                   git add flake.nix
@@ -69,13 +69,14 @@
 
             # Bump version
             (writeShellApplication {
-              name = "ts-bump";
+              name = "${pname}-bump";
 
               text = ''
                 git_root=$(git rev-parse --show-toplevel)
+                cd "''${git_root}"
+
                 next_version=$(echo "${version}" | awk -F. -v OFS=. '{$NF += 1 ; print}')
 
-                cd "''${git_root}"
                 nix-update --flake --version "''${next_version}" default
                 git add flake.nix
                 git commit -m "bump: v${version} -> v''${next_version}"
@@ -88,25 +89,25 @@
 
             # Lint
             (writeShellApplication {
-              name = "ts-lint";
+              name = "${pname}-lint";
 
               text = ''
                 git_root=$(git rev-parse --show-toplevel)
-
                 cd "''${git_root}"
-                echo "Linting"
+
+                # Go
                 revive -config revive.toml -set_exit_status ./...
               '';
             })
 
             # Build
             (writeShellApplication {
-              name = "ts-build";
+              name = "${pname}-build";
 
               text = ''
                 git_root=$(git rev-parse --show-toplevel)
-
                 cd "''${git_root}"
+
                 echo "Building ${pname}-windows-amd64-${version}.exe"
                 GOOS=windows GOARCH=amd64 go build -o "./build/${pname}-windows-amd64-${version}.exe" .
 
