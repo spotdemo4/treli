@@ -30,20 +30,18 @@ func NewTerminal(maxPrefixLen int) *Terminal {
 
 func (c *Terminal) Gen(text string, width int, height int, mtop int, mbottom int) string {
 	if c.Viewport == nil {
-		vp := viewport.New(width, height-(mtop+mbottom))
+		vp := viewport.New(width, height-(mtop+mbottom)+2)
 		c.Viewport = &vp
 		c.Viewport.YPosition = mtop
 		c.Viewport.Style = c.style
 	} else {
 		c.Viewport.Width = width
-		c.Viewport.Height = height - (mtop + mbottom)
+		c.Viewport.Height = height - (mtop + mbottom) + 2
 		c.Viewport.YPosition = mtop
 	}
 
 	atBottom := c.Viewport.AtBottom()
-
-	// Need to add extra lines because of https://github.com/charmbracelet/bubbles/pull/731
-	c.Viewport.SetContent(text + "\n\n\n")
+	c.Viewport.SetContent(text)
 
 	if atBottom {
 		c.Viewport.GotoBottom()

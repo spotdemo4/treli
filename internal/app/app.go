@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
-	"strings"
 	"sync"
 	"time"
 
@@ -14,22 +14,22 @@ import (
 )
 
 type App struct {
-	Name        string
-	Color       string
-	Dir         string
-	Exts        []string
-	State       State
-	InvertCheck bool
+	Name  string
+	Color string
+	Dir   string
+	Exts  []string
+	State State
 
-	checkstr string
-	buildstr string
-	startstr string
+	OnStart  string
+	OnChange string
 
-	msgs        chan Msg
-	wg          *sync.WaitGroup
-	ctx         context.Context
-	cancel      context.CancelFunc
-	ratelimiter *util.RateLimiter
+	shell     string
+	pause     bool
+	prevState State
+	msgs      chan Msg
+	wg        *sync.WaitGroup
+	stop      *util.Broadcast
+	mu        *sync.Mutex
 }
 
 type Msg struct {
@@ -45,108 +45,76 @@ type Msg struct {
 
 func New(
 	ctx context.Context,
+	shell string,
 	msgs chan Msg,
 	name string,
 	color string,
 	dir string,
 	exts []string,
-	invertCheck bool,
 
-	check string,
-	build string,
-	start string,
+	OnStart string,
+	OnChange string,
 ) *App {
 	app := App{
-		Name:        name,
-		Color:       color,
-		Dir:         dir,
-		Exts:        exts,
-		State:       StateIdle,
-		InvertCheck: invertCheck,
+		Name:  name,
+		Color: color,
+		Dir:   dir,
+		Exts:  exts,
+		State: StateIdle,
 
-		checkstr: check,
-		buildstr: build,
-		startstr: start,
+		OnStart:  OnStart,
+		OnChange: OnChange,
 
-		msgs:        msgs,
-		wg:          &sync.WaitGroup{},
-		ctx:         ctx,
-		cancel:      nil,
-		ratelimiter: util.NewRateLimiter(time.Second * 1),
+		shell: shell,
+		pause: false,
+		msgs:  msgs,
+		wg:    &sync.WaitGroup{},
+		stop:  util.NewBroadcast(),
+		mu:    &sync.Mutex{},
 	}
+
+	go func() {
+		<-ctx.Done()
+		app.Stop()
+	}()
 
 	return &app
 }
 
-func (a *App) Run() {
-	// Rate limit calls
-	ok := a.ratelimiter.Check()
-	if !ok {
-		return
-	}
-	a.ratelimiter.Wait()
-
-	// Stop previously running instances
-	a.Stop()
-	ctx, cancel := context.WithCancel(a.ctx)
-	a.cancel = cancel
-
-	_, err := a.Check(ctx)
-	if a.InvertCheck && err == nil {
-		return
-	}
-	if !a.InvertCheck && err != nil {
-		return
-	}
-
-	err = ctx.Err()
-	if err != nil {
-		return
-	}
-
-	_, err = a.Build(ctx)
-	if err != nil {
-		return
-	}
-
-	err = ctx.Err()
-	if err != nil {
-		return
-	}
-
-	_, err = a.Start(ctx)
-}
-
-func (a *App) Check(ctx context.Context) (bool, error) {
-	return a.cmd(ctx, a.checkstr)
-}
-
-func (a *App) Build(ctx context.Context) (bool, error) {
-	return a.cmd(ctx, a.buildstr)
-}
-
-func (a *App) Start(ctx context.Context) (bool, error) {
-	return a.cmd(ctx, a.startstr)
+func (a *App) Stop() {
+	a.stop.Notify()
+	a.Wait()
 }
 
 func (a *App) Wait() {
+	a.mu.Lock()
 	a.wg.Wait()
+	a.mu.Unlock()
 }
 
-func (a *App) Stop() {
-	if a.cancel != nil {
-		a.cancel()
-		a.wg.Wait()
+func (a *App) Pause() {
+	if a.pause {
+		a.pause = false
+		a.State = a.prevState
+	} else {
+		a.pause = true
+		a.prevState = a.State
+		a.State = StatePause
 	}
 }
 
-func (a *App) cmd(ctx context.Context, command string) (bool, error) {
+func (a *App) Run(command string) error {
+	if a.pause {
+		return nil
+	}
 	if command == "" {
-		return false, nil
+		return nil
 	}
 
+	a.mu.Lock()
 	a.wg.Add(1)
 	defer a.wg.Done()
+	a.mu.Unlock()
 
 	a.State = StateLoading
 	k := a.msg(command, &MsgOpts{
@@ -154,26 +122,13 @@ func (a *App) cmd(ctx context.Context, command string) (bool, error) {
 	})
 
 	// Create exec.Cmd
-	var cmd *exec.Cmd
-	c := strings.Split(command, " ")
-	if len(c) == 1 {
-		cmd = exec.Command(c[0])
-	} else if len(c) > 1 {
-		cmd = exec.Command(c[0], c[1:]...)
-	} else {
-		a.State = StateError
-		a.msg("invalid command", &MsgOpts{
-			State: StateError,
-			Key:   &k,
-		})
-		return true, errors.New("invalid command")
-	}
+	cmd := exec.Command(a.shell, "-c", command)
 	if a.Dir != "" {
 		cmd.Dir = a.Dir
 	}
 
 	// Check
-	out, err := util.Run(ctx, cmd)
+	out, err := util.Run(cmd)
 	if err != nil {
 		a.State = StateError
 		a.msg(
@@ -184,40 +139,54 @@ func (a *App) cmd(ctx context.Context, command string) (bool, error) {
 			},
 		)
 
-		return true, err
+		return err
 	}
 
 	// Watch for output
-	for line := range out {
-		switch line := line.(type) {
-		case util.Stdout:
-			a.msg(string(line), nil)
+	for {
+		select {
+		case line := <-out:
+			switch line := line.(type) {
+			case util.Stdout:
+				a.msg(string(line), nil)
 
-		case util.Stderr:
-			a.msg(string(line), &MsgOpts{
-				State: StateError,
-			})
-
-		case util.ExitCode:
-			if line != 0 {
-				a.State = StateError
-				a.msg(command, &MsgOpts{
+			case util.Stderr:
+				a.msg(string(line), &MsgOpts{
 					State: StateError,
-					Key:   &k,
 				})
 
-				return true, errors.New("exited with bad code")
+			case util.ExitCode:
+				if line != 0 {
+					a.State = StateError
+					a.msg(command, &MsgOpts{
+						State: StateError,
+						Key:   &k,
+					})
+
+					return errors.New("exited with bad code")
+				}
+
+				a.State = StateSuccess
+				a.msg(command, &MsgOpts{
+					State: StateSuccess,
+					Key:   &k,
+				})
+				return nil
 			}
 
-			a.State = StateSuccess
-			a.msg(command, &MsgOpts{
-				State: StateSuccess,
+		case <-a.stop.Wait():
+			if err := cmd.Process.Signal(os.Interrupt); err != nil {
+				cmd.Process.Kill()
+			}
+
+			a.State = StateError
+			a.msg(fmt.Sprintf("killed %s", command), &MsgOpts{
+				State: StateError,
 				Key:   &k,
 			})
+			return errors.New("killed")
 		}
 	}
-
-	return true, nil
 }
 
 type MsgOpts struct {

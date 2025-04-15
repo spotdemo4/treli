@@ -2,6 +2,7 @@ package model
 
 import (
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/key"
@@ -104,6 +105,17 @@ func (m Runner) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 				return tea.QuitMsg{}
 			}
+
+		case key.Matches(msg, m.help.keys.Up):
+			m.terminal.Viewport.ScrollUp(1)
+
+		case key.Matches(msg, m.help.keys.Down):
+			m.terminal.Viewport.ScrollDown(1)
+
+		case key.Matches(msg, m.help.keys.Pause):
+			for _, a := range m.apps {
+				(*a).Pause()
+			}
 		}
 
 	case tea.QuitMsg:
@@ -160,6 +172,8 @@ func (m Runner) head() (items []string) {
 			item = append(item, checkmark)
 		case app.StateError:
 			item = append(item, xmark)
+		case app.StatePause:
+			item = append(item, pause)
 		}
 
 		item = append(item, (*a).Name)
@@ -188,6 +202,8 @@ func (m Runner) View() string {
 	s := header
 	s += main
 	s += footer
+
+	os.WriteFile("/tmp/teatest", []byte(s), 0644)
 
 	// Send the UI for rendering
 	return s

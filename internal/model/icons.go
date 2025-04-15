@@ -17,3 +17,8 @@ var xmark = lipgloss.NewStyle().
 	Foreground(lipgloss.Color("#f38ba8")).
 	Bold(true).
 	Render("✕")
+
+var pause = lipgloss.NewStyle().
+	Foreground(lipgloss.Color("#f9e2af")).
+	Bold(true).
+	Render("⏸")

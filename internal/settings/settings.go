@@ -1,79 +1,41 @@
 package settings
 
 import (
-	"errors"
+	"os"
+	"path/filepath"
 
 	"github.com/goccy/go-yaml"
 )
 
-type Setting struct {
-	Name        string
-	Color       string
-	Dir         string
-	Exts        []string
-	InvertCheck bool
+type app struct {
+	Color string   `yaml:"color"`
+	Dir   string   `yaml:"dir"`
+	Exts  []string `yaml:"exts"`
 
-	Check string
-	Build string
-	Start string
+	OnStart  string `yaml:"onstart"`
+	OnChange string `yaml:"onchange"`
 }
 
-func Get(yml []byte) ([]Setting, error) {
-	settings := []Setting{}
+type Settings struct {
+	Apps map[string]app `yaml:"apps"`
+}
 
-	tmp := map[string]any{}
-	if err := yaml.Unmarshal(yml, &tmp); err != nil {
+func Get(path string) (*Settings, error) {
+	// Get settings file
+	sf, err := os.ReadFile(filepath.Join(path, "treli.yaml"))
+	if err != nil {
 		return nil, err
 	}
 
-	tmpApps, ok := tmp["apps"]
-	if !ok {
-		return nil, errors.New("no apps found")
+	// Load settings file
+	settings := Settings{}
+	if err := yaml.Unmarshal(sf, &settings); err != nil {
+		return nil, err
 	}
 
-	tmpAppsList := tmpApps.([]any)
-	for _, tmpApp := range tmpAppsList {
-		tmpAppMap := tmpApp.(map[string]any)
-		s := Setting{}
+	return &settings, nil
+}
 
-		for k, v := range tmpAppMap {
-			s.Name = k
-			values := v.(map[string]any)
+func Create() {
 
-			if color, ok := values["color"]; ok {
-				s.Color = color.(string)
-			}
-
-			if dir, ok := values["dir"]; ok {
-				s.Dir = dir.(string)
-			}
-
-			if exts, ok := values["exts"]; ok {
-				tempext := exts.([]any)
-				for _, ext := range tempext {
-					s.Exts = append(s.Exts, ext.(string))
-				}
-			}
-
-			if invertcheck, ok := values["invertcheck"]; ok {
-				s.InvertCheck = invertcheck.(bool)
-			}
-
-			if check, ok := values["check"]; ok {
-				s.Check = check.(string)
-			}
-
-			if build, ok := values["build"]; ok {
-				s.Build = build.(string)
-			}
-
-			if start, ok := values["start"]; ok {
-				s.Start = start.(string)
-			}
-		}
-
-		settings = append(settings, s)
-	}
-
-	return settings, nil
 }

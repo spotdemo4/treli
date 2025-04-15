@@ -9,7 +9,7 @@ on:
       - main
 
 jobs:
-  release:
+  lint:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -19,6 +19,12 @@ jobs:
         uses: cachix/install-nix-action@v31
         with:
           nix_path: nixpkgs=channel:nixos-unstable
+
+      - name: Use Cachix
+        uses: cachix/cachix-action@v16
+        with:
+          name: treli
+          authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
         
       - name: Lint
-        run: nix develop --command ts-lint
+        run: nix develop --command treli-lint

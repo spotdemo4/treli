@@ -6,41 +6,55 @@ import (
 )
 
 type RateLimiter struct {
-	time time.Time
-	wait time.Duration
-	mu   sync.Mutex
+	ratelimits map[string]time.Time
+	wait       time.Duration
+	mu         sync.Mutex
 }
 
 func NewRateLimiter(wait time.Duration) *RateLimiter {
 	return &RateLimiter{
-		time: time.Now().Add(-wait),
-		wait: wait,
-		mu:   sync.Mutex{},
+		ratelimits: make(map[string]time.Time),
+		wait:       wait,
+		mu:         sync.Mutex{},
 	}
 }
 
-func (r *RateLimiter) Check() bool {
+func (r *RateLimiter) Check(key string) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	if r.time.Add(r.wait).Before(time.Now()) {
-		r.time = time.Now()
+	last, ok := r.ratelimits[key]
+	if !ok {
+		r.ratelimits[key] = time.Now()
 		return true
 	}
 
-	r.time = time.Now()
+	if last.Add(r.wait).Before(time.Now()) {
+		r.ratelimits[key] = time.Now()
+		return true
+	}
+
+	r.ratelimits[key] = time.Now()
 	return false
 }
 
-func (r *RateLimiter) Wait() {
+func (r *RateLimiter) Wait(key string) {
 	for {
 		r.mu.Lock()
-		if r.time.Add(r.wait).Before(time.Now()) {
+
+		last, ok := r.ratelimits[key]
+		if !ok {
 			break
 		}
+		if last.Add(r.wait).Before(time.Now()) {
+			delete(r.ratelimits, key)
+			break
+		}
+
+		w := r.wait
 		r.mu.Unlock()
 
-		time.Sleep(r.wait)
+		time.Sleep(w)
 	}
 
 	r.mu.Unlock()

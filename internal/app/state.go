@@ -7,6 +7,7 @@ const (
 	StateLoading
 	StateError
 	StateSuccess
+	StatePause
 )
 
 var stateName = map[State]string{
@@ -14,6 +15,7 @@ var stateName = map[State]string{
 	StateLoading: "loading",
 	StateError:   "error",
 	StateSuccess: "success",
+	StatePause:   "pause",
 }
 
 func (as State) String() string {

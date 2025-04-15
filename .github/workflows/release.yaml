@@ -19,9 +19,15 @@ jobs:
         uses: cachix/install-nix-action@v31
         with:
           nix_path: nixpkgs=channel:nixos-unstable
+
+      - name: Use Cachix
+        uses: cachix/cachix-action@v16
+        with:
+          name: treli
+          authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
         
       - name: Build
-        run: nix develop --command ts-build
+        run: nix develop --command treli-build
 
       - name: Create Release
         uses: softprops/action-gh-release@v2

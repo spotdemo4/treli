@@ -5,6 +5,8 @@ import (
 	"errors"
 	"path/filepath"
 	"slices"
+	"strings"
+	"time"
 
 	"github.com/boyter/gocodewalker"
 	"github.com/fsnotify/fsnotify"
@@ -21,6 +23,9 @@ func Watch(ctx context.Context, dir string, apps []*App) error {
 	// Create walker
 	fileListQueue := make(chan *gocodewalker.File, 100)
 	fileWalker := gocodewalker.NewFileWalker(dir, fileListQueue)
+
+	// Create ratelimiter
+	rl := util.NewRateLimiter(time.Second * 5)
 
 	// Add extensions to walker
 	exts := []string{}
@@ -58,12 +63,27 @@ func Watch(ctx context.Context, dir string, apps []*App) error {
 			}
 
 			for _, app := range apps {
-				if !slices.Contains(app.Exts, util.ExtNoDot(filepath.Ext(event.Name))) {
+				if !slices.Contains(app.Exts, extNoDot(filepath.Ext(event.Name))) {
 					continue
 				}
 
-				go app.Run()
+				// Rate limit calls
+				ok := rl.Check(app.Name)
+				if !ok {
+					continue
+				}
+
+				go func() {
+					rl.Wait(app.Name)
+
+					app.Stop()
+					app.Run(app.OnChange)
+				}()
 			}
 		}
 	}
+}
+
+func extNoDot(s string) string {
+	return strings.TrimPrefix(filepath.Ext(s), ".")
 }

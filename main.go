@@ -3,16 +3,17 @@ package main
 import (
 	"context"
 	"fmt"
-	"log"
 	"os"
+	"os/signal"
 	"path/filepath"
-	"sync"
+	"syscall"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/joho/godotenv"
 	"github.com/spotdemo4/treli/internal/app"
 	"github.com/spotdemo4/treli/internal/model"
 	"github.com/spotdemo4/treli/internal/settings"
+	"github.com/twpayne/go-shell"
 )
 
 func main() {
@@ -26,17 +27,17 @@ func main() {
 		}
 	}
 
-	// Get settings file
-	sf, err := os.ReadFile(filepath.Join(path, "treli.yaml"))
-	if err != nil {
-		fmt.Println("No `treli.yaml` file found. Have you run `treli init`?")
-		os.Exit(0)
+	// Get shell
+	sh, ok := shell.CurrentUserShell()
+	if !ok {
+		sh = shell.DefaultShell()
+		fmt.Printf("Could not get current shell, defaulting to %s", sh)
 	}
 
 	// Get settings
-	settings, err := settings.Get(sf)
+	s, err := settings.Get(path)
 	if err != nil {
-		fmt.Printf("Error loading settings: %s", err.Error())
+		fmt.Printf("Error getting settings: %s", err.Error())
 		os.Exit(1)
 	}
 
@@ -52,18 +53,17 @@ func main() {
 
 	// Load apps
 	apps := []*app.App{}
-	for _, s := range settings {
+	for name, s := range s.Apps {
 		app := app.New(
 			ctx,
+			sh,
 			msgs,
-			s.Name,
+			name,
 			s.Color,
 			filepath.Join(path, s.Dir),
 			s.Exts,
-			s.InvertCheck,
-			s.Check,
-			s.Build,
-			s.Start,
+			s.OnStart,
+			s.OnChange,
 		)
 		apps = append(apps, app)
 	}
@@ -73,35 +73,29 @@ func main() {
 		return
 	}
 
-	args := os.Args[1:]
-	if len(args) == 0 {
-		run(ctx, path, apps, msgs)
-	} else {
-		switch args[0] {
-		case "run", "dev":
-			run(ctx, path, apps, msgs)
-		case "check":
-			check(ctx, apps, msgs)
-		default:
-			fmt.Printf("option `%s` not found\n", args[0])
-		}
-	}
-
-	cancel()
-	for _, a := range apps {
-		a.Wait()
-	}
-	close(msgs)
-}
-
-func run(ctx context.Context, path string, apps []*app.App, msgs chan app.Msg) {
 	// Start apps
-	for _, a := range apps {
-		go a.Run()
+	for _, app := range apps {
+		go func() {
+			app.Run(app.OnStart)
+		}()
 	}
 
 	// Start watching
 	go app.Watch(ctx, path, apps)
+
+	// Gracefully shutdown on SIGINT or SIGTERM
+	sigs := make(chan os.Signal, 1)
+	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
+	go func() {
+		sig := <-sigs
+		fmt.Printf("Received signal: %s", sig)
+
+		cancel()
+		for _, a := range apps {
+			a.Wait()
+		}
+		close(msgs)
+	}()
 
 	// Start tea
 	p := tea.NewProgram(
@@ -112,34 +106,4 @@ func run(ctx context.Context, path string, apps []*app.App, msgs chan app.Msg) {
 	if _, err := p.Run(); err != nil {
 		fmt.Printf("error: %v", err)
 	}
-}
-
-func check(ctx context.Context, apps []*app.App, msgs chan app.Msg) {
-	go func() {
-		for msg := range msgs {
-			switch msg.State {
-			case app.StateSuccess:
-				log.Printf("%s: success", msg.AppName)
-
-			case app.StateError:
-				log.Printf("%s: failed", msg.AppName)
-				os.Exit(1)
-
-			default:
-				log.Printf("%s: %s", msg.AppName, msg.Text)
-			}
-		}
-	}()
-
-	// Start checks
-	wg := sync.WaitGroup{}
-	for _, a := range apps {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			a.Check(ctx)
-		}()
-	}
-
-	wg.Wait()
 }
