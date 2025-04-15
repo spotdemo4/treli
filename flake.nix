@@ -3,34 +3,28 @@
 
   inputs = {
     nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
-    flake-utils.url = "github:numtide/flake-utils";
     gitignore = {
       url = "github:hercules-ci/gitignore.nix";
       inputs.nixpkgs.follows = "nixpkgs";
     };
   };
 
-  outputs = { self, nixpkgs, flake-utils, gitignore }:
-    flake-utils.lib.eachDefaultSystem (system:
+  outputs = { self, nixpkgs, gitignore }:
+    let
+      pname = "treli";
+      version = "0.0.5";
 
-      let
-        pname = "treli";
-        version = "0.0.5";
-
-        pkgs = import nixpkgs { 
+      supportedSystems = [ "x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin" ];
+      forSystem = f: nixpkgs.lib.genAttrs supportedSystems (system: f {
+        inherit system;
+        pkgs = import nixpkgs {
           inherit system;
         };
-
-        app = pkgs.buildGoModule {
-          inherit pname version;
-          src = gitignore.lib.gitignoreSource ./.;
-          vendorHash = "sha256-QdW0DlOscw49bKD/ZaI1jSAkjjOHiB3WMedpi+Ni3iM=";
-          env.CGO_ENABLED = 0;
-        };
-
-      in
-      {
-        devShells.default = pkgs.mkShell {
+      });
+    in
+    {
+      devShells = forSystem ({ pkgs, ... }: {
+        default = pkgs.mkShell {
           packages = with pkgs; [
             git
             nix-update
@@ -97,6 +91,9 @@
 
                 # Go
                 revive -config revive.toml -set_exit_status ./...
+
+                # Nix
+                nix flake check --all-systems
               '';
             })
 
@@ -123,12 +120,15 @@
             })
           ];
         };
+      });
 
-        packages = rec {
-          default = app;
-
-          treli = app;
+      packages = forSystem ({ pkgs, ... }: rec {
+        default = treli;
+        treli = pkgs.buildGoModule {
+          inherit pname version;
+          src = gitignore.lib.gitignoreSource ./.;
+          vendorHash = "sha256-QdW0DlOscw49bKD/ZaI1jSAkjjOHiB3WMedpi+Ni3iM=";
         };
-      }
-    );
+      });
+    };
 }
