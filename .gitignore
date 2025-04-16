@@ -1,5 +1,4 @@
 .env
-/.envrc
 /.direnv
 /result
 /build/
