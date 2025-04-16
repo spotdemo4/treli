@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 
+tmpv=$(git describe --tags --abbrev=0)
+version=${tmpv#v}
 next_version=$(echo "${version}" | awk -F. -v OFS=. '{$NF += 1 ; print}')
 
 cd "$(git rev-parse --show-toplevel)"

@@ -13,7 +13,7 @@ import (
 	"github.com/spotdemo4/treli/internal/util"
 )
 
-func Watch(ctx context.Context, dir string, apps []*App) error {
+func Watch(ctx context.Context, path string, apps []*App) error {
 	// Create new watcher
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
@@ -22,7 +22,7 @@ func Watch(ctx context.Context, dir string, apps []*App) error {
 
 	// Create walker
 	fileListQueue := make(chan *gocodewalker.File, 100)
-	fileWalker := gocodewalker.NewFileWalker(dir, fileListQueue)
+	fileWalker := gocodewalker.NewFileWalker(path, fileListQueue)
 
 	// Create ratelimiter
 	rl := util.NewRateLimiter(time.Second * 5)
@@ -38,7 +38,7 @@ func Watch(ctx context.Context, dir string, apps []*App) error {
 	}
 	fileWalker.AllowListExtensions = exts
 
-	// Walk dir, add matching folders to watcher
+	// Walk path, add matching folders to watcher
 	go fileWalker.Start()
 	for f := range fileListQueue {
 		dir := filepath.Dir(f.Location)

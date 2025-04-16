@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 	"sync"
 	"time"
 
@@ -54,7 +55,22 @@ func New(
 
 	OnStart string,
 	OnChange string,
-) *App {
+) (*App, error) {
+	if OnStart != "" {
+		sp := strings.Split(OnStart, " ")
+		_, err := exec.LookPath(sp[0])
+		if err != nil {
+			return nil, err
+		}
+	}
+	if OnChange != "" {
+		sp := strings.Split(OnChange, " ")
+		_, err := exec.LookPath(sp[0])
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	app := App{
 		Name:  name,
 		Color: color,
@@ -78,7 +94,7 @@ func New(
 		app.Stop()
 	}()
 
-	return &app
+	return &app, nil
 }
 
 func (a *App) Stop() {

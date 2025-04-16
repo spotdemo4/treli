@@ -42,7 +42,12 @@
             ]
             # Use .scripts
             ++ map (
-              x: (pkgs.writeShellScriptBin "${pname}-${(lib.nameFromURL (baseNameOf x) ".")}" (builtins.readFile x))
+              x: (
+                pkgs.writeShellApplication {
+                  name = "${pname}-${(lib.nameFromURL (baseNameOf x) ".")}";
+                  text = builtins.readFile x;
+                }
+              )
             ) (pkgs.lib.filesystem.listFilesRecursive ./.scripts);
         };
       }
