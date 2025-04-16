@@ -7,7 +7,7 @@
 
   outputs = {nixpkgs, ...}: let
     pname = "treli";
-    version = "''''0.0.8";
+    version = "0.0.9";
 
     supportedSystems = [
       "x86_64-linux"
