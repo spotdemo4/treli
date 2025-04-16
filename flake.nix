@@ -7,7 +7,7 @@
 
   outputs = {nixpkgs, ...}: let
     pname = "treli";
-    version = "0.0.6";
+    version = "''0.0.7";
 
     supportedSystems = [
       "x86_64-linux"
@@ -61,7 +61,7 @@
         treli = pkgs.buildGoModule {
           inherit pname version;
           src = ./.;
-          vendorHash = "sha256-QdW0DlOscw49bKD/ZaI1jSAkjjOHiB3WMedpi+Ni3iM=";
+          vendorHash = "sha256-+f70tVKvvsXVDpCVEmGIOcpP6tIeSjGL14/wd8P+/GA=";
         };
       }
     );
