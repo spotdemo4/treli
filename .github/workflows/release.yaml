@@ -27,10 +27,17 @@ jobs:
           authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
         
       - name: Build
-        run: nix develop --command treli-build
+        run: >
+          nix build
+          .#treli-linux-amd64
+          .#treli-linux-arm64
+          .#treli-linux-arm
+          .#treli-windows-amd64
+          .#treli-darwin-amd64
+          .#treli-darwin-arm64
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
           files: |-
-            build/**
+            result*/bin/*

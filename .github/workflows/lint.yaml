@@ -26,5 +26,5 @@ jobs:
           name: treli
           authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
         
-      - name: Lint
-        run: nix develop --command treli-lint
+      - name: Run checks
+        run: nix flake check
