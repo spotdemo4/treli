@@ -1,4 +1,4 @@
-package app
+package proc
 
 import (
 	"context"
@@ -13,7 +13,7 @@ import (
 	"github.com/spotdemo4/treli/internal/util"
 )
 
-func Watch(ctx context.Context, path string, apps []*App) error {
+func Watch(ctx context.Context, path string, procs []*Proc) error {
 	// Create new watcher
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
@@ -29,7 +29,7 @@ func Watch(ctx context.Context, path string, apps []*App) error {
 
 	// Add extensions to walker
 	exts := []string{}
-	for _, app := range apps {
+	for _, app := range procs {
 		for _, ext := range app.Exts {
 			if !slices.Contains(exts, ext) {
 				exts = append(exts, ext)
@@ -62,7 +62,7 @@ func Watch(ctx context.Context, path string, apps []*App) error {
 				return errors.New("could not watch for events")
 			}
 
-			for _, app := range apps {
+			for _, app := range procs {
 				if !slices.Contains(app.Exts, extNoDot(filepath.Ext(event.Name))) {
 					continue
 				}
@@ -74,10 +74,15 @@ func Watch(ctx context.Context, path string, apps []*App) error {
 				}
 
 				go func() {
+					// Wait for rate limiter to complete
 					rl.Wait(app.Name)
 
+					// Wait for proc to stop
 					app.Stop()
-					app.Run(app.OnChange)
+					app.Wait()
+
+					// Restart
+					go app.Start(ctx)
 				}()
 			}
 		}

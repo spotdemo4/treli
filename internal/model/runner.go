@@ -1,6 +1,7 @@
 package model
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"strings"
@@ -9,11 +10,12 @@ import (
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/spotdemo4/treli/internal/app"
+	"github.com/spotdemo4/treli/internal/proc"
 	"github.com/spotdemo4/treli/internal/util"
 )
 
 type Runner struct {
+	ctx    context.Context
 	width  *int
 	height *int
 
@@ -22,21 +24,22 @@ type Runner struct {
 	help     *Help
 	spinner  spinner.Model
 
-	msgChan chan app.Msg
-	msgs    []app.Msg
-	apps    []*app.App
+	procs    []*proc.Proc
+	onchange chan int
+	selected int
 }
 
-func NewRunner(applications []*app.App, msgChan chan app.Msg) *Runner {
+func NewRunner(ctx context.Context, procs []*proc.Proc, onchange chan int) *Runner {
 	mpl := 0
 
-	for _, app := range applications {
+	for _, app := range procs {
 		if len((*app).Name) > mpl {
 			mpl = len((*app).Name)
 		}
 	}
 
 	return &Runner{
+		ctx:    ctx,
 		width:  nil,
 		height: nil,
 
@@ -45,9 +48,8 @@ func NewRunner(applications []*app.App, msgChan chan app.Msg) *Runner {
 		help:     NewHelp(),
 		spinner:  spinner.New(spinner.WithSpinner(spinner.MiniDot), spinner.WithStyle(lipgloss.NewStyle().Foreground(lipgloss.Color("#a6adc8")))),
 
-		msgChan: msgChan,
-		msgs:    []app.Msg{},
-		apps:    applications,
+		procs:    procs,
+		onchange: onchange,
 	}
 }
 
@@ -55,7 +57,7 @@ func (m Runner) Init() tea.Cmd {
 	return tea.Batch(
 		m.spinner.Tick,
 		func() tea.Msg {
-			return app.Msg(<-m.msgChan)
+			return <-m.onchange
 		},
 	)
 }
@@ -66,22 +68,9 @@ func (m Runner) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	switch msg := msg.(type) {
 
-	case app.Msg:
-		// Edit old message with the same key
-		if msg.State == app.StateError || msg.State == app.StateSuccess {
-			for i, prev := range m.msgs {
-				if prev.Key == msg.Key && prev.State == app.StateLoading {
-					m.msgs[i].State = app.StateIdle
-					break
-				}
-			}
-		}
-
-		// Append new message
-		m.msgs = append(m.msgs, msg)
-
+	case int:
 		return m, func() tea.Msg {
-			return app.Msg(<-m.msgChan)
+			return <-m.onchange
 		}
 
 	case spinner.TickMsg:
@@ -99,8 +88,8 @@ func (m Runner) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case key.Matches(msg, m.help.keys.Quit):
 			return m, func() tea.Msg {
-				for _, a := range m.apps {
-					(*a).Stop()
+				for _, p := range m.procs {
+					(*p).Stop()
 				}
 
 				return tea.QuitMsg{}
@@ -112,9 +101,12 @@ func (m Runner) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, m.help.keys.Down):
 			m.terminal.Viewport.ScrollDown(1)
 
-		case key.Matches(msg, m.help.keys.Pause):
-			for _, a := range m.apps {
-				(*a).Pause()
+		case key.Matches(msg, m.help.keys.Start):
+			p := m.procs[m.selected]
+			if p.State() == proc.StateRunning {
+				(*m.procs[m.selected]).Stop()
+			} else {
+				(*m.procs[m.selected]).Start(m.ctx)
 			}
 		}
 

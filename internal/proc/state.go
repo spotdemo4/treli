@@ -1,21 +1,19 @@
-package app
+package proc
 
 type State int
 
 const (
 	StateIdle State = iota
-	StateLoading
+	StateRunning
 	StateError
 	StateSuccess
-	StatePause
 )
 
 var stateName = map[State]string{
 	StateIdle:    "idle",
-	StateLoading: "loading",
+	StateRunning: "running",
 	StateError:   "error",
 	StateSuccess: "success",
-	StatePause:   "pause",
 }
 
 func (as State) String() string {

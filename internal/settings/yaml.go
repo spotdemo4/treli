@@ -26,7 +26,7 @@ func GetYaml(path string) (*Settings, error) {
 }
 
 func FindYaml(path string) (string, error) {
-	r, _ := regexp.Compile("^(\\.)?treli.y(a)?ml$")
+	r, _ := regexp.Compile(`^(\.)?treli.y(a)?ml$`)
 
 	var file string
 	err := filepath.WalkDir(path, func(p string, info os.DirEntry, err error) error {

@@ -1,18 +1,15 @@
 package main
 
 import (
-	"bufio"
 	"context"
 	"fmt"
 	"os"
 	"os/signal"
-	"path/filepath"
-	"strings"
 	"syscall"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/spotdemo4/treli/internal/app"
 	"github.com/spotdemo4/treli/internal/model"
+	"github.com/spotdemo4/treli/internal/proc"
 	"github.com/spotdemo4/treli/internal/settings"
 	"github.com/twpayne/go-shell"
 )
@@ -24,7 +21,7 @@ func main() {
 		var err error
 		path, err = os.Getwd()
 		if err != nil {
-			fmt.Printf("Error getting current path: %s\n", err.Error())
+			fmt.Printf("Error getting current path: %v\n", err)
 			os.Exit(1)
 		}
 	}
@@ -40,92 +37,61 @@ func main() {
 	var s *settings.Settings
 	yamlPath, err := settings.FindYaml(path)
 	if err != nil {
-		fmt.Printf("Error searching for treli.yaml: %s\n", err.Error())
+		fmt.Printf("Could not search for config yaml: %v\n", err)
 		os.Exit(1)
 	}
 	if yamlPath == "" {
-		fmt.Println("Settings file not found")
-
-		// Try to find apps via their config files
-		s, err = settings.Get(path)
-		if err != nil {
-			fmt.Printf("Error searching for apps: %s\n", err.Error())
-			os.Exit(1)
-		}
-		if len(s.Apps) == 0 {
-			fmt.Println("No apps found")
-			os.Exit(0)
-		}
-
-		fmt.Printf("Found %d app(s). Would you like to create a config file?\n", len(s.Apps))
-		fmt.Print("[y/n]: ")
-
-		// Create reader for reading y/n response
-		reader := bufio.NewReader(os.Stdin)
-		response, err := reader.ReadString('\n')
-		if err != nil {
-			fmt.Printf("Could not create reader: %s\n", err.Error())
-			os.Exit(1)
-		}
-		response = strings.ToLower(strings.TrimSpace(response))
-
-		// Create .treli.yaml
-		if response == "y" || response == "yes" {
-			err = settings.CreateYaml(path, s)
-			if err != nil {
-				fmt.Printf("Could not create .treli.yaml: %s\n", err.Error())
-				os.Exit(1)
-			}
-		}
-	} else {
-		// Load settings from yaml config
-		s, err = settings.GetYaml(yamlPath)
-		if err != nil {
-			fmt.Printf("Could not load config file: %s\n", err.Error())
-			os.Exit(1)
-		}
+		fmt.Println("Config file not found")
+		os.Exit(1)
 	}
+
+	// Load settings from yaml config
+	s, err = settings.GetYaml(yamlPath)
+	if err != nil {
+		fmt.Printf("Could not load config file: %v\n", err)
+		os.Exit(1)
+	}
+
 	// If there's no apps we can't do anything, so just exit
-	if len(s.Apps) == 0 {
-		fmt.Println("no apps found")
+	if len(s.Procs) == 0 {
+		fmt.Println("No procs found")
 		os.Exit(0)
 	}
 
 	// Create msg channel and context
-	msgs := make(chan app.Msg, 100)
+	onchange := make(chan int, 100)
 	ctx, cancel := context.WithCancel(context.Background())
 
 	// Create apps
-	apps := []*app.App{}
-	for name, s := range s.Apps {
-		app, err := app.New(
-			ctx,
-			sh,
-			msgs,
+	procs := []*proc.Proc{}
+	for name, p := range s.Procs {
+		proc, err := proc.New(
 			name,
-			s.Color,
-			filepath.Join(path, s.Dir),
-			s.Exts,
-			s.OnStart,
-			s.OnChange,
+			p.Exts,
+			p.AutoStart,
+			p.AutoRestart,
+			p.Shell,
+			p.Cwd,
+			sh,
+			onchange,
 		)
 		if err != nil {
-			fmt.Printf("Cannot use app %s: %s\n", name, err.Error())
+			fmt.Printf("Cannot load proc %s: %s\n", name, err.Error())
 			os.Exit(1)
 		}
 
-		apps = append(apps, app)
+		procs = append(procs, proc)
 	}
 
 	// Start apps
-	for _, app := range apps {
-		go func() {
-			app.Run(app.OnStart)
-		}()
+	for _, proc := range procs {
+		if proc.AutoStart {
+			go proc.Start(ctx)
+		}
 	}
 
 	// Start watching
-	go app.Watch(ctx, path, apps)
+	go proc.Watch(ctx, path, procs)
 
 	// Gracefully shutdown on SIGINT or SIGTERM
 	sigs := make(chan os.Signal, 1)
@@ -135,10 +101,10 @@ func main() {
 		fmt.Printf("Received signal %s, closing\n", sig)
 
 		cancel()
-		for _, a := range apps {
-			a.Wait()
+		for _, p := range procs {
+			p.Wait()
 		}
-		close(msgs)
+		close(onchange)
 	}()
 
 	// Start tea
